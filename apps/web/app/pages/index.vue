@@ -36,7 +36,7 @@ interface FieldEdit {
 
 const config = useRuntimeConfig()
 const mockEnabled = computed(() => config.public.visionMock)
-const mockFixture = ref<'tagPrice' | 'noTagPrice'>('tagPrice')
+const mockFixture = ref<'tagPrice' | 'noTagPrice' | 'allNull'>('tagPrice')
 const fileInput = ref<HTMLInputElement>()
 const imageQueue = ref<QueuedImage[]>([])
 const customColor = reactive({ name: '', hex: '#B6A895' })
@@ -560,6 +560,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                 <select v-model="mockFixture" aria-label="选择模拟吊牌价格场景">
                   <option value="tagPrice">照片可读 · ¥399</option>
                   <option value="noTagPrice">未见吊牌 · null</option>
+                  <option value="allNull">信息不足 · 全 null 兜底</option>
                 </select>
               </label>
               <button class="button button--primary recognize-button" type="button" :disabled="busy || saving" @click="recognize">

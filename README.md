@@ -4,14 +4,22 @@
 
 ## 本地运行
 
-环境使用仓库锁定的 pnpm 11.19.0。Windows PowerShell 下启用无密钥演示模式：
+需要 Node.js 与仓库锁定的 pnpm 11.19.0。将 `<仓库地址>` 替换为项目 Git 地址，克隆并安装 workspace 依赖：
+
+```powershell
+git clone <仓库地址> snap2sku
+cd snap2sku
+pnpm install
+```
+
+Windows PowerShell 下启用无密钥演示模式并启动开发服务：
 
 ```powershell
 $env:NUXT_VISION_MOCK = '1'
 pnpm dev
 ```
 
-打开终端显示的本地地址。添加 JPG、PNG 或 WebP 图片后点击「识别商品」。模拟吊牌菜单提供两种固定结果：照片中可读到吊牌价（`tagPrice: 399`），以及未见吊牌（`tagPrice: null`）。图片仍经过本地上传接口，模拟结果不会请求视觉模型。
+打开终端显示的本地地址。添加 JPG、PNG 或 WebP 图片后点击「识别商品」。模拟场景包括照片中可读到吊牌价（`tagPrice: 399`）、未见吊牌（`tagPrice: null`），以及信息不足时全 null 结果的兜底演示。图片仍经过本地上传接口，模拟结果不会请求视觉模型。
 
 录入流程包含图片压缩、识别结果确认、SKU 库存/价格填写和本地记录保存。W1 的商品描述由用户手动补充；流式 AI 文案属于后续阶段。
 
@@ -30,11 +38,26 @@ pnpm build
 
 基准用例为 1 色 × 500 码，共渲染 500 个 SKU 行。设备为 Windows 桌面环境、Codex 内置浏览器（CPU/RAM 型号因系统权限不可读取）；矩阵渲染实测约 328.2 ms，修改首个库存值到下一帧约 17.3 ms。帧间隔采样中记录到 3 次超过 25 ms 的间隔，说明极端矩阵下有少量掉帧；普通使用应以更小的实际 SKU 规模为准。此数据是当前设备的一次本地开发环境观测，不作为跨设备性能保证。
 
-## 当前取舍
+## 架构
 
-- **W1 使用 JSON + 原子写**：当前是本地、单机、低并发原型，JSON 便于直接检查和备份，不需要提前引入数据库；写入先落到同目录临时文件，再用 rename 原子替换，并在进程内排队，避免并发追加互相覆盖或留下半份 records.json。数据访问仍统一走 `server/utils/store.ts`。
-- **DS-1 单屏流程**：上传、识别、确认和 SKU 编辑留在同一工作台，避免跨页丢失上下文；复杂表单和 SKU 矩阵会超出小屏视口，因此这里把“单屏”落实为单页面连续流程，允许正常纵向滚动，不为满足字面的一屏高度压缩字段或矩阵。PRD 中“不超过 1 屏滚动”的量化验收仍需结合真实设备复核。
-- **无独立置信度的字段回退到 overall**：模型 schema 只提供 category、colors、style 的独立置信度；seasons、audience、fabric、item_name、tagPrice 没有独立评分。用 overall 显示统一的保守参考，避免伪造字段级分数；不会把某个其他字段的分数冒充为这些字段的置信度。
+```mermaid
+flowchart LR
+  Browser["浏览器<br/>Nuxt 页面"] --> Routes["Nuxt server routes<br/>上传 · 识别 · 记录"]
+  Routes --> Vision[视觉适配器]
+  Vision --> Mock[mock]
+  Vision --> Model[真实视觉模型]
+  Routes --> Prompts["@scope/prompts<br/>版本化提示词"]
+  Routes --> Store[store 门面]
+  Store --> Atomic["JSON 文件<br/>临时文件 + 原子 rename"]
+```
+
+## 设计取舍
+
+- **存储选 JSON + 原子写，放弃 W1 引入数据库**：当前是本地、单机、低并发原型，JSON 便于检查和备份，省去数据库运维；同目录临时文件加 `rename`，并在进程内排队，降低并发覆盖或留下半份文件的风险。数据访问统一走 `server/utils/store.ts`。
+- **流程选同一工作台连续操作，放弃跨页向导**：上传、识别、确认和 SKU 编辑留在同一页面，避免跨页丢失上下文；表单和 SKU 矩阵本身较长，因此允许纵向滚动，不为字面的一屏高度压缩必要内容。PRD 的“不超过 1 屏滚动”仍需结合真实设备复核。
+- **无独立置信度的字段选用 `overall`，放弃伪造字段级分数**：schema 只给 category、colors、style 独立置信度；seasons、audience、fabric、item_name、tagPrice 没有独立评分。显示 `overall` 作为统一参考，避免把其他字段的分数冒充成它们的置信度。
+- **字段定义选 `packages/shared` 的 Zod schema，放弃 prompt 中手写字段清单**：prompt 在运行时从 schema 生成字段说明，减少代码与文档重复，降低字段变更后两边漂移的风险。
+- **模型接入选服务端视觉适配器并保留 mock 实现，放弃业务层直连模型**：mock 是不需要 API key 的第二个实现，方便无密钥开发和复现流程；以后更换模型只需调整适配器，不必改业务调用方。
 
 ## 目录约定
 
