@@ -1,0 +1,14 @@
+{
+  "name": "@scope/prompts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./recognize": "./src/recognize.ts",
+    "./describe": "./src/describe.ts"
+  },
+  "dependencies": {
+    "@scope/shared": "workspace:*"
+  }
+}

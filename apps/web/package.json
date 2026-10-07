@@ -1,0 +1,24 @@
+{
+  "name": "@snap2sku/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@nuxt/fonts": "^0.14.0",
+    "@scope/prompts": "workspace:*",
+    "@scope/shared": "workspace:*",
+    "nuxt": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^2.2.10"
+  }
+}

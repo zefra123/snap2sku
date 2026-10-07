@@ -1,0 +1,10 @@
+{
+  "name": "snap2sku",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "pnpm --filter @snap2sku/web dev",
+    "build": "pnpm --filter @snap2sku/web build",
+    "typecheck": "pnpm --filter @snap2sku/web typecheck"
+  }
+}

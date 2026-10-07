@@ -1,0 +1,46 @@
+:root {
+  color-scheme: light;
+  --c-bg: oklch(97% 0.008 80);
+  --c-surface: oklch(99% 0.004 80);
+  --c-ink: oklch(24% 0.012 60);
+  --c-ink-2: oklch(46% 0.012 60);
+  --c-border: oklch(87% 0.012 80);
+  --c-primary: oklch(40% 0.095 258);
+  --c-accent: oklch(52% 0.13 50);
+  --c-success: oklch(48% 0.1 150);
+  --c-error: oklch(48% 0.15 28);
+  --c-warn-bg: oklch(92% 0.06 90);
+  --c-warn-ink: oklch(45% 0.09 85);
+  --font-heading: 'Noto Serif SC', 'Songti SC', serif;
+  --font-body: system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-xs: 0.75rem;
+  --font-sm: 0.875rem;
+  --font-base: 1rem;
+  --font-lg: 1.25rem;
+  --font-xl: 1.75rem;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius: 4px;
+  --radius-tag: 6px;
+  --radius-full: 9999px;
+  --shadow-card: 0 1px 2px oklch(24% 0.012 60 / 6%);
+  --ease: cubic-bezier(.25, 1, .5, 1);
+  --t-fast: 150ms;
+  --t-mid: 200ms;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 360px; background: var(--c-bg); }
+body { margin: 0; color: var(--c-ink); background: var(--c-bg); font-family: var(--font-body); font-size: 14px; }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+::selection { color: var(--c-surface); background: var(--c-primary); }
+*:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
