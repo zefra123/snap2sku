@@ -468,17 +468,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <a class="brand" href="#top" aria-label="snap2sku 首页">
-        <span class="brand-mark">S</span>
-        <span>snap<span class="brand-light">2</span>sku</span>
-      </a>
-      <nav class="main-nav" aria-label="主导航"><NuxtLink to="/">录入工作台</NuxtLink><NuxtLink to="/records">记录列表</NuxtLink></nav>
-      <div class="topbar-meta">
-        <span class="local-state"><span class="state-dot" />本地记录</span>
-        <span v-if="mockEnabled" class="mode-badge">MOCK 模式</span>
-      </div>
-    </header>
+    <AppHeader status-text="本地记录" :badge="mockEnabled ? 'MOCK 模式' : undefined" />
 
     <main id="top" class="workspace">
       <section class="page-heading">
@@ -675,19 +665,6 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 <style>
 :root { font-synthesis: none; }
 .app-shell { min-height: 100vh; }
-.topbar { height: 56px; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; padding: 0 clamp(20px, 4vw, 64px); background: var(--c-surface); border-bottom: 1px solid var(--c-border); }
-.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--c-ink); font-family: var(--font-heading); font-size: var(--font-lg); font-weight: 700; text-decoration: none; letter-spacing: -.4px; }
-.brand-mark { width: 24px; height: 26px; display: grid; place-items: center; background: var(--c-primary); color: var(--c-surface); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; }
-.brand-light { color: var(--c-accent); font-family: var(--font-mono); font-size: var(--font-sm); }
-.topbar-context { justify-self: center; color: var(--c-ink-2); font-size: var(--font-xs); letter-spacing: .02em; }
-.context-dot,.state-dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: var(--radius-full); background: var(--c-accent); vertical-align: 1px; }
-.context-separator { padding: 0 9px; color: var(--c-border); }
-.topbar-meta { justify-self: end; display: flex; align-items: center; gap: 14px; color: var(--c-ink-2); font-size: var(--font-xs); }
-.main-nav { justify-self: center; display: flex; gap: 4px; }
-.main-nav a { padding: 7px 10px; color: var(--c-ink-2); font-size: var(--font-xs); text-decoration: none; }
-.main-nav a.router-link-active { color: var(--c-ink); background: var(--c-bg); }
-.state-dot { background: var(--c-success); }
-.mode-badge { border: 1px solid var(--c-border); padding: 4px 7px; color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); letter-spacing: .08em; }
 .workspace { width: min(1240px, calc(100% - 48px)); margin: 0 auto; }
 .page-heading { display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; }
 .eyebrow { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; letter-spacing: .14em; }
@@ -834,7 +811,7 @@ h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight:
 .add-size-control button:disabled { opacity: .5; cursor: not-allowed; }
 .table-scroll { overflow-x: auto; border: 1px solid var(--c-border); }
 .sku-table { width: 100%; border-collapse: collapse; font-size: var(--font-xs); }
-.sku-table th,.sku-table td { height: 35px; padding: 4px 9px; border-bottom: 1px solid color-mix(in oklch, var(--c-border) 68%, transparent); text-align: right; }
+.sku-table th,.sku-table td { height: 32px; padding: 4px 9px; border-bottom: 1px solid color-mix(in oklch, var(--c-border) 68%, transparent); text-align: right; }
 .sku-table thead th { position: sticky; top: 0; height: 29px; background: var(--c-bg); color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 500; letter-spacing: .02em; }
 .sku-table thead th:first-child,.sku-table tbody th { text-align: left; }
 .sku-table th small { color: color-mix(in oklch, var(--c-ink-2) 75%, transparent); font-family: var(--font-body); font-size: var(--font-xs); }
@@ -880,15 +857,12 @@ h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight:
 .app-footer i { color: var(--c-accent); font-style: normal; }
 .app-footer b { color: var(--c-primary); font-weight: 600; }
 @media (max-width: 900px) {
-  .topbar { grid-template-columns: 1fr auto; }
-  .main-nav { justify-self: end; }
   .workspace { width: min(100% - 32px, 700px); }
   .work-grid { grid-template-columns: minmax(0, 1fr); }
   .upload-column { grid-template-columns: minmax(0, 1fr) minmax(210px, .7fr); align-items: stretch; }
   .guide-card { align-self: start; }
 }
 @media (max-width: 600px) {
-  .topbar { height: 50px; padding: 0 16px; }
   .workspace { width: calc(100% - 28px); }
   .page-heading { padding: 25px 0 20px; }
   .heading-note { display: none; }

@@ -39,6 +39,7 @@ function elapsedMs(record: ProductRecord): number {
 
 function formatDuration(record: ProductRecord): string {
   const seconds = Math.floor(elapsedMs(record) / 1000)
+  if (seconds < 60) return `${seconds}s`
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
@@ -76,11 +77,7 @@ function editValue(value: unknown): string {
 
 <template>
   <div class="records-page">
-    <header class="topbar">
-      <NuxtLink class="brand" to="/" aria-label="snap2sku 首页"><span class="brand-mark">S</span><span>snap<span class="brand-light">2</span>sku</span></NuxtLink>
-      <nav class="main-nav" aria-label="主导航"><NuxtLink to="/">录入工作台</NuxtLink><NuxtLink to="/records">记录列表</NuxtLink></nav>
-      <span class="records-local-state"><i /> 本地记录</span>
-    </header>
+    <AppHeader status-text="本地记录" />
 
     <main class="records-main">
       <div class="records-page-heading">
@@ -128,15 +125,6 @@ function editValue(value: unknown): string {
 
 <style>
 .records-page { min-height: 100vh; }
-.records-page .topbar { height: 56px; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; padding: 0 clamp(20px, 4vw, 64px); background: var(--c-surface); border-bottom: 1px solid var(--c-border); }
-.records-page .brand { display: inline-flex; align-items: center; gap: 8px; color: var(--c-ink); font-family: var(--font-heading); font-size: var(--font-base); font-weight: 600; text-decoration: none; }
-.records-page .brand-mark { width: 27px; height: 27px; display: grid; place-items: center; background: var(--c-primary); color: var(--c-surface); font-family: var(--font-mono); font-size: var(--font-xs); }
-.records-page .brand-light { color: var(--c-accent); }
-.records-page .main-nav { justify-self: center; display: flex; gap: 4px; }
-.records-page .main-nav a { padding: 7px 10px; color: var(--c-ink-2); font-size: var(--font-xs); text-decoration: none; }
-.records-page .main-nav a.router-link-active { color: var(--c-ink); background: var(--c-bg); }
-.records-local-state { justify-self: end; color: var(--c-ink-2); font-size: var(--font-xs); }
-.records-local-state i { width: 6px; height: 6px; display: inline-block; margin-right: 5px; border-radius: 50%; background: var(--c-success); }
 .records-main { width: min(1160px, calc(100% - 64px)); margin: 0 auto; }
 .records-page-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; padding: 38px 0 26px; }
 .records-page-heading .eyebrow { color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); letter-spacing: .1em; }
@@ -178,9 +166,6 @@ function editValue(value: unknown): string {
 .records-alert { padding: 10px 12px; border-left: 2px solid var(--c-error); background: var(--c-surface); color: var(--c-error); font-size: var(--font-xs); }
 .records-footer { display: flex; justify-content: space-between; padding: 18px 0; color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
 @media (max-width: 760px) {
-  .records-page .topbar { grid-template-columns: 1fr auto; padding: 0 16px; }
-  .records-page .main-nav { justify-self: end; }
-  .records-local-state { display: none; }
   .records-main { width: calc(100% - 28px); }
   .records-table-head { display: none; }
   .record-list-row { grid-template-columns: 46px minmax(0, 1fr) 58px; gap: 8px; }

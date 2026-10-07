@@ -1,4 +1,4 @@
-# PRD：AI 商品录入助手（snap2sku）V1.4
+# PRD：AI 商品录入助手（snap2sku）V1.5
 
 > 本文档按「可判定」标准撰写，供 AI 编码代理与人共同使用。AI 执行约定：**schema 为唯一事实源（枚举、字段、校验一律从 `packages/shared` 引用，禁止手写副本）；所有异常必须走错误码表；每条验收标准是完成的定义。**
 
@@ -6,7 +6,7 @@
 
 | 项 | 值 |
 |---|---|
-| 版本 | V1.4（2026-10-07）：补充 E_FILE_NOT_FOUND、E_WRITE_FAILED 文件与记录写入错误契约。V1.3（2026-10-06）：合并两条 V1.2 分支——① 契约修订：识别 schema 增加 tagPrice、SKU 价格字段统一为 吊牌价/批发单价（tagPrice/wholesalePrice）、新增 descriptionAi 使描述编辑率可计算、新增 §9 NFR、F-13 入需求表；② 仓库侧拍板：F-13 访问码门禁 + 存储实现约束（原子写/备份 API）。同时技术栈 Nuxt 3 → Nuxt 4.5.2（对齐实际安装与 AGENTS.md）。V1.2：V1.0 基础上补充第 8 节 UI/UX 设计规范 |
+| 版本 | V1.5（2026-10-07）：错误码表补 E_VALIDATION、清理与 E_RECOGNIZE_INVALID 重复的 E_PARSE；抽出 AppHeader 组件统一双页头部（顶栏高对齐规范 48px、SKU 单元格 32px）。V1.4（2026-10-07）：补充 E_FILE_NOT_FOUND、E_WRITE_FAILED 文件与记录写入错误契约。V1.3（2026-10-06）：合并两条 V1.2 分支——① 契约修订：识别 schema 增加 tagPrice、SKU 价格字段统一为 吊牌价/批发单价（tagPrice/wholesalePrice）、新增 descriptionAi 使描述编辑率可计算、新增 §9 NFR、F-13 入需求表；② 仓库侧拍板：F-13 访问码门禁 + 存储实现约束（原子写/备份 API）。同时技术栈 Nuxt 3 → Nuxt 4.5.2（对齐实际安装与 AGENTS.md）。V1.2：V1.0 基础上补充第 8 节 UI/UX 设计规范 |
 | 设计上下文 | 见仓库根目录 `.impeccable.md`（脚手架时随工程带入） |
 | 范围 | MVP：F-1 ~ F-8（管理端 + 移动端拍照录入） |
 | 不在本期 | 登录/多租户/权限（访问码门禁除外，见 F-13）、订单库存 ERP（指**出入库流水、多仓、库存增减与预警管理**；本期 SKU 的「库存」仅为录入时的一次性静态数字，不参与任何增减逻辑，见 F-4）、模型微调、原生 App |
@@ -144,8 +144,8 @@
 | E_FILE_NOT_FOUND | 识别或读取缩略图时，fileId 不存在或对应上传文件已丢失 | 返回 404，不调用模型；提示用户重新上传图片 | 「找不到已上传的图片，请重新上传」 |
 | E_UPSTREAM | 视觉 API >20s 或 5xx | 退避 2s 重试 1 次 | 「识别服务开小差，正在重试…」 |
 | E_RATE_LIMIT | 免费接口并发超限 | 队列串行化 | 「排队中，第 N 位」 |
-| E_RECOGNIZE_INVALID | zod 二次校验仍失败 | 422，不落任何数据 | 「这张图没认出来，换个角度试试」 |
-| E_PARSE | 模型返回非 JSON | 与 E_RECOGNIZE_INVALID 合并处理 | 同上 |
+| E_RECOGNIZE_INVALID | zod 二次校验仍失败（含模型返回非 JSON，原 E_PARSE 场景已并入本码） | 422，不落任何数据 | 「这张图没认出来，换个角度试试」 |
+| E_VALIDATION | 提交的 ProductRecord 未通过 schema 校验 | 400，不落任何数据 | 「商品数据不完整，请检查必填项」 |
 | SSE 中断 | 生成中断线 | 前端保留已出文本 | 「生成中断，点此继续/重新生成」 |
 | 重复提交 | 提交按钮连点 | 提交后按钮 loading+禁用 | 无需提示 |
 | E_WRITE_FAILED | 写入 records.json 的临时文件或原子 rename 失败 | 返回 500，不追加记录；保留前端表单内容 | 「保存失败，请保留表单内容后重试」 |
