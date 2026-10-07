@@ -4,10 +4,10 @@
 
 ## 本地运行
 
-需要 Node.js 与仓库锁定的 pnpm 11.19.0。将 `<仓库地址>` 替换为项目 Git 地址，克隆并安装 workspace 依赖：
+需要 Node.js 与仓库锁定的 pnpm 11.19.0。克隆并安装 workspace 依赖：
 
 ```powershell
-git clone <仓库地址> snap2sku
+git clone https://github.com/zefra123/snap2sku.git snap2sku
 cd snap2sku
 pnpm install
 ```
