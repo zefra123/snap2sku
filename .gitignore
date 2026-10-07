@@ -12,3 +12,4 @@ node_modules/
 # 运行期产生的本地数据（记录 JSON 与上传图片）
 data/
 uploads/
+package-lock.json
