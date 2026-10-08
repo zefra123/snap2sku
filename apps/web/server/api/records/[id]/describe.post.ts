@@ -10,7 +10,7 @@ import {
   DESCRIPTION_SYSTEM_PROMPT,
   buildDescriptionUserPrompt,
 } from "@scope/prompts/describe";
-import { saveGeneratedDescription, readRecords } from "../../../utils/store";
+import { getRecordById, saveGeneratedDescription } from "../../../utils/store";
 
 const MOCK_CHUNK_SIZE = 10;
 const MOCK_CHUNK_DELAY_MS = 200;
@@ -31,9 +31,7 @@ export async function handleRecordDescription(
   options: DescribeOptions,
 ): Promise<void> {
   const recordId = event.context.params?.id;
-  const record = (await readRecords()).find(
-    (candidate) => candidate.id === recordId,
-  );
+  const record = recordId ? await getRecordById(recordId) : undefined;
   if (!record) {
     throw createError({
       statusCode: 404,
@@ -59,6 +57,13 @@ export async function handleRecordDescription(
     user: buildDescriptionUserPrompt(source),
   };
   const result = createMockDescriptionResult(source, prompt);
+  const completed = await writeDescriptionStream(
+    event,
+    result,
+    options.chunkDelayMs ?? MOCK_CHUNK_DELAY_MS,
+  );
+  if (!completed) return;
+
   if (!(await saveGeneratedDescription(record.id, result.description))) {
     throw createError({
       statusCode: 500,
@@ -66,12 +71,6 @@ export async function handleRecordDescription(
       data: { code: "E_WRITE_FAILED", message: "描述保存失败，请稍后重试" },
     });
   }
-
-  await writeDescriptionStream(
-    event,
-    result,
-    options.chunkDelayMs ?? MOCK_CHUNK_DELAY_MS,
-  );
 }
 
 export function createMockDescriptionResult(
@@ -97,7 +96,7 @@ export async function writeDescriptionStream(
   event: H3Event,
   result: DescribeResult,
   chunkDelayMs = MOCK_CHUNK_DELAY_MS,
-): Promise<void> {
+): Promise<boolean> {
   const response = event.node.res;
   response.statusCode = 200;
   response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -107,17 +106,18 @@ export async function writeDescriptionStream(
   response.flushHeaders();
 
   for (const text of splitText(result.description, MOCK_CHUNK_SIZE)) {
-    if (response.destroyed) return;
+    if (response.destroyed) return false;
     response.write(`event: chunk\ndata: ${JSON.stringify({ text })}\n\n`);
     if (chunkDelayMs > 0) await delay(chunkDelayMs);
   }
 
-  if (response.destroyed) return;
+  if (response.destroyed) return false;
   response.write(
     `event: result\ndata: ${JSON.stringify({ confidence: result.confidence })}\n\n`,
   );
   response.write("event: done\ndata: [DONE]\n\n");
   response.end();
+  return true;
 }
 
 function splitText(text: string, chunkSize: number): string[] {

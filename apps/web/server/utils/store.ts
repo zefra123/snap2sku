@@ -139,6 +139,43 @@ export async function readRecords(): Promise<ProductRecord[]> {
   );
 }
 
+export async function getRecordById(
+  recordId: string,
+): Promise<ProductRecord | undefined> {
+  const connection = getDatabase();
+  const row = connection
+    .prepare("SELECT * FROM records WHERE id = ?")
+    .get(recordId) as DatabaseRow | undefined;
+  if (!row) return undefined;
+
+  const skuRows = connection
+    .prepare("SELECT * FROM skus WHERE record_id = ? ORDER BY rowid")
+    .all(recordId) as SkuRow[];
+  const sku = skuRows.map((skuRow) => ({
+    color: skuRow.color,
+    size: skuRow.size,
+    stock: skuRow.stock,
+    tagPrice: skuRow.tag_price,
+    wholesalePrice: skuRow.wholesale_price,
+  }));
+
+  return ProductRecordSchema.parse({
+    id: row.id,
+    createdAt: row.created_at,
+    durationMs: parseJson(row.duration_ms),
+    images: parseJson(row.images),
+    recognize: parseJson(row.recognize),
+    edits: parseJson(row.edits ?? "[]"),
+    aiCorrect: parseJson(row.ai_correct ?? "{}"),
+    costEstimate: row.cost_estimate,
+    description: row.description,
+    ...(row.description_ai === null
+      ? {}
+      : { descriptionAi: row.description_ai }),
+    sku,
+  });
+}
+
 export async function appendRecord(record: ProductRecord): Promise<void> {
   const connection = getDatabase();
   connection.exec("BEGIN IMMEDIATE");

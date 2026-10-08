@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import {
+  DescribeResultSchema,
   RECOGNIZE_FIELD_NAMES,
   RecognizeResultSchema,
   type ProductRecord,
@@ -13,6 +14,7 @@ const errorMessage = ref('')
 const expandedIds = ref(new Set<string>())
 const descriptionOutputs = ref<Record<string, string>>({})
 const descriptionErrors = ref<Record<string, string>>({})
+const descriptionConfidences = ref<Record<string, number>>({})
 const generatingIds = ref(new Set<string>())
 
 onMounted(loadRecords)
@@ -32,8 +34,12 @@ async function loadRecords(): Promise<void> {
 async function generateDescription(record: ProductRecord): Promise<void> {
   descriptionOutputs.value = { ...descriptionOutputs.value, [record.id]: '' }
   descriptionErrors.value = { ...descriptionErrors.value, [record.id]: '' }
+  const nextConfidences = { ...descriptionConfidences.value }
+  delete nextConfidences[record.id]
+  descriptionConfidences.value = nextConfidences
   generatingIds.value = new Set(generatingIds.value).add(record.id)
   let receivedDone = false
+  let pendingConfidence: number | undefined
 
   try {
     const response = await fetch(`/api/records/${encodeURIComponent(record.id)}/describe`, {
@@ -56,29 +62,49 @@ async function generateDescription(record: ProductRecord): Promise<void> {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      buffer = await consumeDescriptionEvents(buffer, record.id, (doneEvent) => {
-        receivedDone = doneEvent
-      })
+      buffer = await consumeDescriptionEvents(
+        buffer,
+        record.id,
+        (doneEvent) => {
+          receivedDone = doneEvent
+        },
+        (confidence) => {
+          pendingConfidence = confidence
+        },
+      )
     }
     buffer += decoder.decode()
     if (buffer.trim()) {
-      await consumeDescriptionEvents(`${buffer}\n\n`, record.id, (doneEvent) => {
-        receivedDone = doneEvent
-      })
+      await consumeDescriptionEvents(
+        `${buffer}\n\n`,
+        record.id,
+        (doneEvent) => {
+          receivedDone = doneEvent
+        },
+        (confidence) => {
+          pendingConfidence = confidence
+        },
+      )
     }
 
     if (!receivedDone) {
       descriptionErrors.value = {
         ...descriptionErrors.value,
-        [record.id]: '描述生成连接中断，已收到的文字已保留，请重新生成。',
+        [record.id]: '描述未保存，请重新生成',
       }
     } else {
       record.descriptionAi = descriptionOutputs.value[record.id] ?? ''
+      if (pendingConfidence !== undefined) {
+        descriptionConfidences.value = {
+          ...descriptionConfidences.value,
+          [record.id]: pendingConfidence,
+        }
+      }
     }
   } catch {
     descriptionErrors.value = {
       ...descriptionErrors.value,
-      [record.id]: '描述生成连接中断，已收到的文字已保留，请重新生成。',
+      [record.id]: '描述未保存，请重新生成',
     }
   } finally {
     const next = new Set(generatingIds.value)
@@ -91,6 +117,7 @@ async function consumeDescriptionEvents(
   source: string,
   recordId: string,
   setDone: (done: boolean) => void,
+  setConfidence: (confidence: number) => void,
 ): Promise<string> {
   let remainder = source.replaceAll('\r\n', '\n')
   let boundary = remainder.indexOf('\n\n')
@@ -110,6 +137,12 @@ async function consumeDescriptionEvents(
       }
     } else if (eventName === 'error') {
       throw new Error(data)
+    } else if (eventName === 'result') {
+      const payload: unknown = JSON.parse(data)
+      if (typeof payload === 'object' && payload !== null && 'confidence' in payload) {
+        const parsed = DescribeResultSchema.shape.confidence.safeParse(payload.confidence)
+        if (parsed.success) setConfidence(parsed.data.description)
+      }
     } else if (eventName === 'done' && data === '[DONE]') {
       setDone(true)
     }
@@ -121,6 +154,10 @@ async function consumeDescriptionEvents(
 
 function isDescriptionChunk(value: unknown): value is { text: string } {
   return typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string'
+}
+
+function confidenceTickCount(confidence: number): number {
+  return Math.max(1, Math.min(5, Math.round(confidence * 5)))
 }
 
 async function responseErrorMessage(response: Response): Promise<string> {
@@ -224,6 +261,11 @@ function editValue(value: unknown): string {
             <div class="ticket-description">
               <div class="ticket-description-heading"><strong>商品描述</strong><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateDescription(record)">{{ generatingIds.has(record.id) ? '生成中…' : '生成描述' }}</button></div>
               <p>{{ (descriptionOutputs[record.id] ?? record.descriptionAi ?? record.description) || '未填写' }}<i v-if="generatingIds.has(record.id)" class="typing-caret" aria-label="正在生成" /></p>
+              <div v-if="!generatingIds.has(record.id) && descriptionConfidences[record.id] !== undefined" class="description-confidence">
+                <span>AI 描述置信度</span>
+                <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount(descriptionConfidences[record.id]!) < 3 }" :aria-label="`置信度 ${confidenceTickCount(descriptionConfidences[record.id]!)} / 5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount(descriptionConfidences[record.id]!) }" /></span>
+                <b>{{ Math.round(descriptionConfidences[record.id]! * 100) }}%</b>
+              </div>
               <span v-if="descriptionErrors[record.id]" class="description-error" role="alert">{{ descriptionErrors[record.id] }}</span>
             </div>
             <div class="ticket-skus"><strong>SKU 规格</strong><span>{{ record.sku.map((sku) => `${sku.color} / ${sku.size}：库存 ${sku.stock}，吊牌价 ¥${sku.tagPrice}，批发价 ¥${sku.wholesalePrice}`).join('；') }}</span></div>
@@ -276,6 +318,14 @@ function editValue(value: unknown): string {
 .describe-button:disabled { opacity: .6; cursor: wait; }
 .typing-caret { display: inline-block; width: 1px; height: 1em; margin-left: 2px; background: var(--c-primary); vertical-align: text-bottom; animation: typing-caret-blink 1s steps(2, start) infinite; }
 .description-error { color: var(--c-error); font-size: var(--font-xs); }
+.description-confidence { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--c-ink-2); font-size: var(--font-xs); }
+.description-confidence b { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
+.confidence-scale { display: inline-grid; grid-template-columns: repeat(5, 5px); gap: 2px; vertical-align: middle; }
+.confidence-scale i { width: 5px; height: 7px; border: 1px solid var(--c-primary); background: transparent; }
+.confidence-scale i.confidence-tick--filled { background: var(--c-primary); }
+.confidence-scale--low { color: var(--c-warn-ink); }
+.confidence-scale--low i { border-color: var(--c-warn-ink); }
+.confidence-scale--low i.confidence-tick--filled { background: var(--c-warn-ink); }
 @keyframes typing-caret-blink { to { visibility: hidden; } }
 .ticket-skus { display: grid; gap: 5px; font-size: var(--font-xs); }
 .edits-flow { display: grid; gap: 7px; margin-top: 12px; }

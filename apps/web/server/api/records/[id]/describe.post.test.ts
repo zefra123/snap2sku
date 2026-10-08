@@ -55,6 +55,19 @@ describe("POST /api/records/:id/describe", () => {
     expect(response.ended).toBe(true);
   });
 
+  it("响应中途断开时不保存描述", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const { event, chunks, response } = createEvent(record.id, true);
+
+    await handleRecordDescription(event, { mock: true, chunkDelayMs: 0 });
+
+    expect(chunks.join("")).not.toContain("event: done");
+    expect(response.ended).toBe(false);
+    await expect(readRecords()).resolves.toEqual([record]);
+  });
+
   it("record 不存在时返回 404", async () => {
     initializeStore(createTemporaryDirectory());
     const { event } = createEvent("00000000-0000-4000-8000-000000000000");
@@ -86,13 +99,16 @@ function createTemporaryDirectory(): string {
   return temporaryDirectory;
 }
 
-function createEvent(recordId: string): {
+function createEvent(
+  recordId: string,
+  destroyAfterFirstWrite = false,
+): {
   event: H3Event;
   chunks: string[];
   response: ReturnType<typeof createResponse>;
 } {
   const chunks: string[] = [];
-  const response = createResponse(chunks);
+  const response = createResponse(chunks, destroyAfterFirstWrite);
   const event = {
     context: { params: { id: recordId } },
     node: { res: response },
@@ -100,7 +116,7 @@ function createEvent(recordId: string): {
   return { event, chunks, response };
 }
 
-function createResponse(chunks: string[]) {
+function createResponse(chunks: string[], destroyAfterFirstWrite: boolean) {
   const headers = new Map<string, string>();
   return {
     statusCode: 0,
@@ -116,6 +132,7 @@ function createResponse(chunks: string[]) {
     flushHeaders() {},
     write(chunk: string) {
       chunks.push(chunk);
+      if (destroyAfterFirstWrite && chunks.length === 1) this.destroyed = true;
       return true;
     },
     end() {

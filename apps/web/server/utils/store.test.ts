@@ -14,6 +14,7 @@ import {
   closeStore,
   initializeStore,
   readRecords,
+  getRecordById,
   appendRecord,
 } from "./store";
 
@@ -35,6 +36,33 @@ describe("SQLite store", () => {
     await appendRecord(record);
 
     await expect(readRecords()).resolves.toEqual([record]);
+  });
+
+  it("按 ID 读取单条记录且不会解析其他脏记录", async () => {
+    const directory = createTemporaryDirectory();
+    initializeStore(directory);
+    const record = createRecord();
+    const unrelatedRecord = createRecord({
+      id: "00000000-0000-4000-8000-000000000042",
+    });
+    await appendRecord(record);
+    await appendRecord(unrelatedRecord);
+
+    const database = new Database(join(directory, "records.sqlite"));
+    database
+      .prepare("UPDATE records SET recognize = ? WHERE id = ?")
+      .run("invalid json", unrelatedRecord.id);
+    database.close();
+
+    await expect(getRecordById(record.id)).resolves.toEqual(record);
+  });
+
+  it("按 ID 查询未命中时返回 undefined", async () => {
+    initializeStore(createTemporaryDirectory());
+
+    await expect(
+      getRecordById("00000000-0000-4000-8000-000000000042"),
+    ).resolves.toBeUndefined();
   });
 
   it("删除记录时级联删除 SKU", async () => {
