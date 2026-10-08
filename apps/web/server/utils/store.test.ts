@@ -72,7 +72,9 @@ describe("SQLite store", () => {
     expect(JSON.parse(readFileSync(backupPath, "utf8"))).toEqual([record]);
   });
 
-  it("并发追加记录时不丢数据", async () => {
+  // better-sqlite3 是同步 API + Node 单线程，Promise.all 不会产生真并发；
+  // 本用例验证的是「连续追加 40 条不丢数据」，而非并发写入安全。
+  it("连续追加 40 条记录不丢数据", async () => {
     const directory = createTemporaryDirectory();
     initializeStore(directory);
     const records = Array.from({ length: 40 }, (_, index) =>
