@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProductRecord } from "@scope/shared/schema";
+import type { DescribeResult } from "@scope/shared/schema";
 import { assertAccessCode } from "../../../utils/access-code";
 import {
   closeStore,
@@ -53,6 +54,33 @@ describe("POST /api/records/:id/describe", () => {
       "text/event-stream; charset=utf-8",
     );
     expect(response.ended).toBe(true);
+  });
+
+  it("将真模型结果沿用相同 SSE 事件格式输出并保存", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const { event, chunks, response } = createEvent(record.id);
+    const modelResult: DescribeResult = {
+      description: "这是一段通过 schema 校验的模型商品描述。".repeat(3),
+      confidence: { description: 0.76, overall: 0.76 },
+    };
+
+    await handleRecordDescription(event, {
+      mock: false,
+      generate: async () => modelResult,
+    });
+
+    const stream = chunks.join("");
+    expect(stream).toContain("event: chunk\ndata:");
+    expect(stream).toContain(
+      'event: result\ndata: {"confidence":{"description":0.76,"overall":0.76}}',
+    );
+    expect(stream).toContain("event: done\ndata: [DONE]\n\n");
+    expect(response.ended).toBe(true);
+    await expect(readRecords()).resolves.toMatchObject([
+      { id: record.id, descriptionAi: modelResult.description },
+    ]);
   });
 
   it("响应中途断开时不保存描述", async () => {

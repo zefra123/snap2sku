@@ -3,11 +3,17 @@ import type { H3Event } from "h3";
 import {
   AUDIENCES,
   CATEGORIES,
+  DescribeResultSchema,
   RecognizeResultSchema,
   SEASONS,
   STYLES,
   type RecognizeResult,
+  type DescribeResult,
 } from "@scope/shared/schema";
+import {
+  DESCRIPTION_SYSTEM_PROMPT,
+  buildDescriptionUserPrompt,
+} from "@scope/prompts/describe";
 import {
   buildRecognitionSystemPrompt,
   buildRecognitionUserPrompt,
@@ -69,36 +75,66 @@ export function normalizeRecognizeResult(value: unknown): unknown {
   let usedFallback = false;
   const confidence = isRecord(value.confidence) ? { ...value.confidence } : {};
 
-  if (result.category === null || result.category === undefined) {
+  if (
+    result.category === null ||
+    result.category === undefined ||
+    !isOneOf(result.category, CATEGORIES)
+  ) {
     result.category =
       CATEGORIES.find((category) => category === "其他") ?? CATEGORIES[0];
     confidence.category = 0.4;
     usedFallback = true;
   }
-  if (result.style === null || result.style === undefined) {
+  if (
+    result.style === null ||
+    result.style === undefined ||
+    !isOneOf(result.style, STYLES)
+  ) {
     result.style = STYLES.find((style) => style === "其他") ?? STYLES[0];
     confidence.style = 0.4;
     usedFallback = true;
   }
-  if (result.colors === null || result.colors === undefined) {
+  if (
+    result.colors === null ||
+    result.colors === undefined ||
+    (Array.isArray(result.colors) && result.colors.length === 0)
+  ) {
     result.colors = [{ name: "其他", hex: "#808080" }];
     confidence.colors = 0.4;
     usedFallback = true;
   }
+  const seasons = result.seasons;
   if (
-    result.seasons === null ||
-    result.seasons === undefined ||
-    (Array.isArray(result.seasons) && result.seasons.length === 0)
+    seasons === null ||
+    seasons === undefined ||
+    !Array.isArray(seasons) ||
+    seasons.filter((season) => isOneOf(season, SEASONS)).length === 0
   ) {
     result.seasons = [SEASONS.find((season) => season === "秋") ?? SEASONS[0]];
     usedFallback = true;
+  } else {
+    const normalizedSeasons = seasons.filter((season) =>
+      isOneOf(season, SEASONS),
+    );
+    result.seasons = normalizedSeasons;
+    if (normalizedSeasons.length !== seasons.length) usedFallback = true;
   }
-  if (result.audience === null || result.audience === undefined) {
+  if (result.audience === "女性") result.audience = "女";
+  else if (result.audience === "男性") result.audience = "男";
+  if (
+    result.audience === null ||
+    result.audience === undefined ||
+    !isOneOf(result.audience, AUDIENCES)
+  ) {
     result.audience =
       AUDIENCES.find((audience) => audience === "中性") ?? AUDIENCES[0];
     usedFallback = true;
   }
-  if (result.item_name === null || result.item_name === undefined) {
+  if (
+    typeof result.item_name !== "string" ||
+    result.item_name.length < 8 ||
+    result.item_name.length > 16
+  ) {
     result.item_name = "待人工确认的服装商品";
     usedFallback = true;
   }
@@ -119,6 +155,15 @@ export function normalizeRecognizeResult(value: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOneOf<const Values extends readonly string[]>(
+  value: unknown,
+  values: Values,
+): value is Values[number] {
+  return (
+    typeof value === "string" && values.some((candidate) => candidate === value)
+  );
 }
 
 export async function recognizeImage(
@@ -156,6 +201,118 @@ export async function recognizeImage(
   );
 }
 
+export async function describeProduct(
+  source: unknown,
+  event: H3Event,
+): Promise<DescribeResult> {
+  const config = useRuntimeConfig(event);
+  if (!config.visionApiKey) {
+    failApi(
+      503,
+      "E_DESCRIPTION_UNAVAILABLE",
+      "描述生成服务未配置视觉模型 API key",
+    );
+  }
+
+  const endpoint = getChatCompletionsEndpoint(config.visionBaseUrl);
+  let repairPrompt: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetchModelResponse(
+      endpoint,
+      config.visionApiKey,
+      config.visionModel,
+      [
+        {
+          role: "system",
+          content: repairPrompt
+            ? `${DESCRIPTION_SYSTEM_PROMPT}\n\n${repairPrompt}`
+            : DESCRIPTION_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: buildDescriptionUserPrompt(source),
+        },
+      ],
+    );
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      repairPrompt =
+        "上一次响应正文不是有效 JSON。请重新生成，并只返回符合格式的 JSON。";
+      continue;
+    }
+    const content = extractModelText(payload);
+    const decoded = content
+      ? parseModelJson(content)
+      : { success: false as const };
+    if (decoded.success) {
+      const result = DescribeResultSchema.safeParse(decoded.data);
+      if (result.success) return result.data;
+      if (attempt === 1) {
+        const normalized = DescribeResultSchema.safeParse(
+          normalizeGeneratedDescription(decoded.data),
+        );
+        if (normalized.success) return normalized.data;
+      }
+      const description = isRecord(decoded.data)
+        ? decoded.data.description
+        : undefined;
+      const descriptionLength =
+        typeof description === "string" ? Array.from(description).length : 0;
+      repairPrompt = `上一次 JSON 未通过 schema 校验，请修复并只返回 JSON：${result.error.issues
+        .slice(0, 8)
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join(
+          "; ",
+        )}。description 当前${descriptionLength}字，必须为60–100字；请写约80字，并在输出前检查字数。`;
+    } else {
+      repairPrompt =
+        "上一次响应不是有效 JSON。请按系统提示重新生成，只返回一个 JSON 对象，不要输出说明文字或 Markdown。";
+    }
+  }
+
+  failApi(422, "E_RECOGNIZE_INVALID", "描述模型重试后仍未通过数据校验");
+}
+
+export function normalizeGeneratedDescription(value: unknown): unknown {
+  if (!isRecord(value) || typeof value.description !== "string") return value;
+
+  const original = value.description;
+  let description = original;
+  let adjusted = false;
+  if (Array.from(description).length < 60) {
+    description = `${description} 配色、季节与适用人群以已确认的信息为准，搭配方式可依个人偏好灵活调整，商品细节请以实际页面信息为准。`;
+    adjusted = true;
+  }
+  if (Array.from(description).length > 100) {
+    description = `${Array.from(description).slice(0, 99).join("")}。`;
+    adjusted = true;
+  }
+  if (!adjusted) return value;
+
+  const confidence = isRecord(value.confidence) ? value.confidence : {};
+  const descriptionConfidence =
+    typeof confidence.description === "number" &&
+    Number.isFinite(confidence.description)
+      ? Math.min(confidence.description, 0.4)
+      : 0.4;
+  const overallConfidence =
+    typeof confidence.overall === "number" &&
+    Number.isFinite(confidence.overall)
+      ? Math.min(confidence.overall, 0.4)
+      : 0.4;
+
+  return {
+    ...value,
+    description,
+    confidence: {
+      description: descriptionConfidence,
+      overall: overallConfidence,
+    },
+  };
+}
+
 async function requestVisionModel(
   image: Buffer,
   mime: string,
@@ -164,71 +321,26 @@ async function requestVisionModel(
   baseUrl: string,
 ): Promise<RecognizeResult> {
   const imageBase64 = image.toString("base64");
-  const configuredEndpoint = baseUrl || "https://open.bigmodel.cn/api/paas/v4";
-  const endpoint = /\/chat\/completions\/?$/i.test(configuredEndpoint)
-    ? configuredEndpoint.replace(/\/+$/, "")
-    : `${configuredEndpoint.replace(/\/+$/, "")}/chat/completions`;
+  const endpoint = getChatCompletionsEndpoint(baseUrl);
   let repairPrompt: string | undefined;
-  let lastUpstreamError = "视觉模型请求失败";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: model || "glm-4v-flash",
-          temperature: 0.1,
-          messages: [
-            {
-              role: "system",
-              content: buildRecognitionSystemPrompt(repairPrompt),
-            },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: buildRecognitionUserPrompt(1) },
-                {
-                  type: "image_url",
-                  image_url: { url: `data:${mime};base64,${imageBase64}` },
-                },
-              ],
-            },
-          ],
-          response_format: { type: "json_object" },
-        }),
-        signal: AbortSignal.timeout(20_000),
-      });
-    } catch (error) {
-      lastUpstreamError =
-        error instanceof Error ? error.message : "视觉模型请求失败";
-      if (attempt === 0) {
-        await pauseBeforeRetry();
-        continue;
-      }
-      failApi(502, "E_UPSTREAM", lastUpstreamError);
-    }
-
-    if (!response.ok) {
-      if (
-        (response.status === 429 || response.status >= 500) &&
-        attempt === 0
-      ) {
-        lastUpstreamError = `视觉模型返回 HTTP ${response.status}`;
-        await pauseBeforeRetry();
-        continue;
-      }
-      const rateLimited = response.status === 429;
-      failApi(
-        rateLimited ? 429 : 502,
-        rateLimited ? "E_RATE_LIMIT" : "E_UPSTREAM",
-        `视觉模型返回 HTTP ${response.status}`,
-      );
-    }
+    const response = await fetchModelResponse(endpoint, apiKey, model, [
+      {
+        role: "system",
+        content: buildRecognitionSystemPrompt(repairPrompt),
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: buildRecognitionUserPrompt(1) },
+          {
+            type: "image_url",
+            image_url: { url: `data:${mime};base64,${imageBase64}` },
+          },
+        ],
+      },
+    ]);
 
     let payload: unknown;
     try {
@@ -272,7 +384,76 @@ async function requestVisionModel(
       failApi(422, "E_RECOGNIZE_INVALID", "视觉模型结果重试后仍未通过数据校验");
   }
 
-  failApi(502, "E_UPSTREAM", lastUpstreamError);
+  failApi(502, "E_UPSTREAM", "视觉模型结果重试后仍无法识别");
+}
+
+async function fetchModelResponse(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  messages: Array<{ role: "system" | "user"; content: unknown }>,
+): Promise<Response> {
+  let lastStatus: number | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model || "glm-4v-flash",
+          temperature: 0.1,
+          messages,
+          response_format: { type: "json_object" },
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (response.ok) return response;
+      lastStatus = response.status;
+      if (
+        attempt === 0 &&
+        (response.status === 429 || response.status >= 500)
+      ) {
+        await pauseBeforeRetry();
+        continue;
+      }
+      if (response.status === 429)
+        failApi(429, "E_RATE_LIMIT", "视觉模型请求频率超限");
+      failApi(502, "E_UPSTREAM", `视觉模型返回 HTTP ${response.status}`);
+    } catch (error) {
+      if (isHttpError(error)) throw error;
+      if (attempt === 0) {
+        await pauseBeforeRetry();
+        continue;
+      }
+      failApi(502, "E_UPSTREAM", "视觉模型请求失败或超时");
+    }
+  }
+  failApi(
+    502,
+    "E_UPSTREAM",
+    lastStatus
+      ? `视觉模型重试后仍返回 HTTP ${lastStatus}`
+      : "视觉模型请求失败或超时",
+  );
+}
+
+function getChatCompletionsEndpoint(baseUrl: string): string {
+  const configuredEndpoint = baseUrl || "https://open.bigmodel.cn/api/paas/v4";
+  return /\/chat\/completions\/?$/i.test(configuredEndpoint)
+    ? configuredEndpoint.replace(/\/+$/, "")
+    : `${configuredEndpoint.replace(/\/+$/, "")}/chat/completions`;
+}
+
+function isHttpError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number"
+  );
 }
 
 function parseModelJson(

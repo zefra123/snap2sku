@@ -10,6 +10,7 @@ import {
   DESCRIPTION_SYSTEM_PROMPT,
   buildDescriptionUserPrompt,
 } from "@scope/prompts/describe";
+import { describeProduct } from "../../../utils/vision";
 import { getRecordById, saveGeneratedDescription } from "../../../utils/store";
 
 const MOCK_CHUNK_SIZE = 10;
@@ -18,11 +19,16 @@ const MOCK_CHUNK_DELAY_MS = 200;
 interface DescribeOptions {
   mock: boolean;
   chunkDelayMs?: number;
+  generate?: (
+    source: DescriptionSource,
+    event: H3Event,
+  ) => Promise<DescribeResult>;
 }
 
 export default defineEventHandler((event) =>
   handleRecordDescription(event, {
     mock: String(useRuntimeConfig(event).visionMock ?? "0") === "1",
+    generate: describeProduct,
   }),
 );
 
@@ -40,27 +46,17 @@ export async function handleRecordDescription(
     });
   }
 
-  if (!options.mock) {
-    throw createError({
-      statusCode: 503,
-      statusMessage: "E_DESCRIPTION_UNAVAILABLE: 描述生成服务尚未启用",
-      data: {
-        code: "E_DESCRIPTION_UNAVAILABLE",
-        message: "描述生成服务尚未启用，请设置 NUXT_VISION_MOCK=1 使用本地示例",
-      },
-    });
-  }
-
   const source = DescriptionSourceSchema.parse(record.recognize);
-  const prompt = {
-    system: DESCRIPTION_SYSTEM_PROMPT,
-    user: buildDescriptionUserPrompt(source),
-  };
-  const result = createMockDescriptionResult(source, prompt);
+  const result = options.mock
+    ? createMockDescriptionResult(source, {
+        system: DESCRIPTION_SYSTEM_PROMPT,
+        user: buildDescriptionUserPrompt(source),
+      })
+    : await (options.generate ?? describeProduct)(source, event);
   const completed = await writeDescriptionStream(
     event,
     result,
-    options.chunkDelayMs ?? MOCK_CHUNK_DELAY_MS,
+    options.mock ? (options.chunkDelayMs ?? MOCK_CHUNK_DELAY_MS) : 0,
   );
   if (!completed) return;
 
