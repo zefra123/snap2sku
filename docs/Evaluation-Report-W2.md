@@ -17,7 +17,7 @@ W2 把记录存储从易于起步的 JSON 迁移到 SQLite，启动时兼容导�
 | `pnpm test`      | 2 个测试文件通过，10/10 用例通过 | `Test Files  2 passed (2)`；`Tests  10 passed (10)`；总耗时 1.11s                                                                       |
 | `pnpm typecheck` |                   通过，退出码 0 | 本次运行无错误输出，进程退出码为 0                                                                                                      |
 | `pnpm build`     |                             通过 | 输出含 `Σ Total size: 20.1 MB (9.55 MB gzip)` 与 `✨ Build complete!`；统计的是 Nuxt/Nitro 报告的总产物大小，含 better-sqlite3 原生模块 |
-| W2 提交数        |                             6 个 | `git rev-list --count dbc61d7^..HEAD` → `6`；范围内包含 3 个功能/修复提交和 3 个文档/评审提交                                           |
+| W2 提交数        |                             7 个 | `git rev-list --count dbc61d7^..HEAD` → `7`；范围内包含 4 个功能/修复提交和 3 个文档/评审提交                                           |
 
 本次 build 前已确认本地开发服务端口未监听，避免 Windows 上 `.nuxt` / `.output` 文件占用。构建输出有 Vue 尾斜线弃用提示和 Zod 注释提示，但最终构建成功。
 
@@ -46,7 +46,7 @@ $ pnpm build
 
 ```text
 $ git rev-list --count dbc61d7^..HEAD
-6
+7
 ```
 
 ## 实测记录
