@@ -23,7 +23,9 @@ pnpm dev
 
 录入流程包含图片压缩、识别结果确认、SKU 库存/价格填写和本地记录保存。W1 的商品描述由用户手动补充；流式 AI 文案属于后续阶段。
 
-上传图片写入项目根目录的 `data/uploads/`，录入记录写入 `data/records.json`。这些目录不位于 Nuxt `public/` 下，不作为静态资源公开。
+上传图片写入项目根目录的 `data/uploads/`，录入记录写入 `data/records.sqlite`（WAL 模式）。首次启动会把旧 `data/records.json` 导入 SQLite，并改名保留为 `data/records.json.bak`。这些目录不位于 Nuxt `public/` 下，不作为静态资源公开。
+
+配置 `NUXT_ACCESS_CODE` 后，上传、识别、描述和记录写入接口要求请求头 `x-access-code`；未配置时本地开发放行，响应带 `X-Access-Code-Mode: disabled`。
 
 真实视觉模型模式要求仅在本机服务端配置 `NUXT_VISION_API_KEY`；也可通过 `NUXT_VISION_MODEL` 和 `NUXT_VISION_BASE_URL` 设置模型与兼容 API 地址。不要把密钥提交到仓库或发送到聊天中。
 
@@ -48,12 +50,15 @@ flowchart LR
   Vision --> Model[真实视觉模型]
   Routes --> Prompts["@scope/prompts<br/>版本化提示词"]
   Routes --> Store[store 门面]
-  Store --> Atomic["JSON 文件<br/>临时文件 + 原子 rename"]
+  Store --> SQLite["SQLite<br/>records.sqlite · WAL"]
+  Legacy["旧 records.json"] -. 首启导入 .-> Store
+  Legacy -. 原文件改名保留 .-> Backup["records.json.bak"]
 ```
 
 ## 设计取舍
 
-- **存储选 JSON + 原子写，放弃 W1 引入数据库**：当前是本地、单机、低并发原型，JSON 便于检查和备份，省去数据库运维；同目录临时文件加 `rename`，并在进程内排队，降低并发覆盖或留下半份文件的风险。数据访问统一走 `server/utils/store.ts`。
+- **W1 存储选 JSON + 原子写，放弃提前接入数据库**：首周先完成录入闭环，JSON 易检查和备份，也避免当时引入数据库依赖；同目录临时文件加 `rename` 并在进程内排队，避免并发追加覆盖或留下半份文件。W2 已迁移到 SQLite。
+- **当前存储选 SQLite + WAL 和事务，放弃继续用 JSON 承担并发更新**：SKU 与记录需要原子写入，SQLite 的事务、外键和 WAL 更适合后续批量录入；首次启动自动导入旧 JSON 并保留原文件为 `.bak`。
 - **流程选同一工作台连续操作，放弃跨页向导**：上传、识别、确认和 SKU 编辑留在同一页面，避免跨页丢失上下文；表单和 SKU 矩阵本身较长，因此允许纵向滚动，不为字面的一屏高度压缩必要内容。PRD 的“不超过 1 屏滚动”仍需结合真实设备复核。
 - **无独立置信度的字段选用 `overall`，放弃伪造字段级分数**：schema 只给 category、colors、style 独立置信度；seasons、audience、fabric、item_name、tagPrice 没有独立评分。显示 `overall` 作为统一参考，避免把其他字段的分数冒充成它们的置信度。
 - **字段定义选 `packages/shared` 的 Zod schema，放弃 prompt 中手写字段清单**：prompt 在运行时从 schema 生成字段说明，减少代码与文档重复，降低字段变更后两边漂移的风险。

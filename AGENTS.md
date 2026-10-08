@@ -13,15 +13,15 @@
 
 ## 2. 技术栈（锁定，改主版本先问）
 
-| 用途 | 选择 |
-|---|---|
-| 包管理 | pnpm 11.19.0 + workspace（禁用 npm/yarn，防第二份 lockfile） |
-| Web 框架 | Nuxt 4.5.2 + TypeScript（strict，禁 `any` 兜底） |
-| 校验 | zod，schema 单一事实源 |
-| 多模态 | GLM-4V-Flash，走服务端适配器 |
-| 状态 | Nuxt `useState` |
-| 存储 | 本地 JSON 文件（`data/records.json`） |
-| 移动端 | uniapp——W3 前不建任何文件 |
+| 用途     | 选择                                                                         |
+| -------- | ---------------------------------------------------------------------------- |
+| 包管理   | pnpm 11.19.0 + workspace（禁用 npm/yarn，防第二份 lockfile）                 |
+| Web 框架 | Nuxt 4.5.2 + TypeScript（strict，禁 `any` 兜底）                             |
+| 校验     | zod，schema 单一事实源                                                       |
+| 多模态   | GLM-4V-Flash，走服务端适配器                                                 |
+| 状态     | Nuxt `useState`                                                              |
+| 存储     | 本地 SQLite（`data/records.sqlite`），旧 JSON 由 store 启动迁移并保留 `.bak` |
+| 移动端   | uniapp——W3 前不建任何文件                                                    |
 
 不引入第二套前端框架（React/Next 一律不加）。
 
@@ -57,18 +57,18 @@ snap2sku/
 3. **密钥只在服务端**：API key 走 `.env` + Nuxt `runtimeConfig`，只在 `server/**` 读取，**绝不出现在前端代码或 `public/`**。
 4. **Stitch 导出的 HTML 只作视觉参考**：不复制其 Tailwind CDN 写法，不整份搬进工程。
 5. **模型调用一律走服务端适配器**（`server/utils/vision.ts`）：业务代码不直接 import SDK，换模型只改适配器一处。
-6. **当前存储 = 本地 JSON**（`data/records.json`），数据访问必须走 `server/utils/store.ts` 门面接口（架构见总体技术规划 §5）。
+6. **当前存储 = 本地 SQLite**（`data/records.sqlite`），数据访问必须走 `server/utils/store.ts` 门面接口（架构见总体技术规划 §5）。
 7. **错误码统一**（以 `docs/PRD-AI商品录入助手-v1.0.md` 第 6 节错误码表为准，如 `E_RATE_LIMIT`）：上传失败、识别超时/限流、zod 校验不通过都要有明确 UI 状态和错误码，不允许只有 happy path。
 8. **AI 结果保留 confidence**：< 0.7 的字段在 UI 上标黄要求人工确认；用户修改要记录「AI 对/错」标记，评测数据从第一天开始攒。
 
 ## 5. 未定项：禁止提前装、提前实现
 
-| 未定项 | 禁止 |
-|---|---|
-| 样式方案（Tailwind v4 vs 手写 CSS） | 装 Tailwind / 任何 CSS 框架 |
-| Pinia | 装 Pinia，状态用 `useState` |
-| 数据库 | 装 better-sqlite3 / prisma / drizzle |
-| 部署平台 | 加 vercel.json / Dockerfile / CI 配置 |
+| 未定项                              | 禁止                                                      |
+| ----------------------------------- | --------------------------------------------------------- |
+| 样式方案（Tailwind v4 vs 手写 CSS） | 装 Tailwind / 任何 CSS 框架                               |
+| Pinia                               | 装 Pinia，状态用 `useState`                               |
+| ORM                                 | 装 prisma / drizzle；SQLite 访问用已批准的 better-sqlite3 |
+| 部署平台                            | 加 vercel.json / Dockerfile / CI 配置                     |
 
 规则：新增任何**运行时**依赖前先问。用某个包的 API 前先读它自带的类型定义，不凭记忆写配置。
 
@@ -109,20 +109,18 @@ pnpm typecheck  # vue-tsc 全量类型检查，必须 0 错误
 
 ## 10. 参考文档（都在仓库内）
 
-| 文档 | 职责 |
-|---|---|
-| `docs/总体技术规划.md` | 架构：前后端结构、数据库演进、双端、四周路线 |
-| `docs/PRD-AI商品录入助手-v1.0.md` | 数据模型 / API 契约 / 错误码表 / 验收标准（契约冲突以它为准） |
-| `docs/W1-执行计划.md` | 本周每日任务与验收 |
-| `docs/技术选型决策与待确认清单.md` | 选型依据 |
-| `docs/识别prompt与schema-初稿.md` | prompt 与 schema 初稿 |
+| 文档                               | 职责                                                          |
+| ---------------------------------- | ------------------------------------------------------------- |
+| `docs/总体技术规划.md`             | 架构：前后端结构、数据库演进、双端、四周路线                  |
+| `docs/PRD-AI商品录入助手-v1.0.md`  | 数据模型 / API 契约 / 错误码表 / 验收标准（契约冲突以它为准） |
+| `docs/W1-执行计划.md`              | 本周每日任务与验收                                            |
+| `docs/技术选型决策与待确认清单.md` | 选型依据                                                      |
+| `docs/识别prompt与schema-初稿.md`  | prompt 与 schema 初稿                                         |
 
 ## 11. 待拍板（拍板后回填本文件 + 总体技术规划）
 
-已拍板：**上线访问码门禁**（W4 部署时实现，方案见总体技术规划 §8，产品侧已记 PRD V1.2）——在它实现之前，W1-W3 期间禁止提前做鉴权中间件。
+已拍板并于 W2 提前实现：**访问码门禁**（`NUXT_ACCESS_CODE` + server middleware，契约见 PRD §6/F-13）。
 
 - [ ] 样式：Tailwind v4（`@theme` 吃 token） vs 手写 CSS 变量
 - [ ] Pinia 是否需要
-- [ ] 数据库切换时机（默认 W2 末，跟批量功能一起）
 - [ ] GLM-4V-Flash 免费额度与并发数（决定 `E_RATE_LIMIT` 阈值）
-- [ ] git 仓库未建（首个 commit 把 `docs/` 一起推上去）

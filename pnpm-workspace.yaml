@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 
 allowBuilds:
+  better-sqlite3: true
   esbuild: true
 
 # 本机（Windows）绕行：pnpm 默认 isolated 链接方式在本机创建符号链接会失败，
@@ -11,4 +12,3 @@ nodeLinker: hoisted
 
 # store 放工程内（本机全局缓存目录在只读盘上）。.pnpm-store 已 gitignore。
 storeDir: C:\Users\Zefra\Desktop\snap2sku\.pnpm-store
-
