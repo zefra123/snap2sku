@@ -151,6 +151,16 @@ export async function appendRecord(record: ProductRecord): Promise<void> {
   }
 }
 
+export async function saveGeneratedDescription(
+  recordId: string,
+  description: string,
+): Promise<boolean> {
+  const result = getDatabase()
+    .prepare("UPDATE records SET description_ai = ? WHERE id = ?")
+    .run(description, recordId);
+  return result.changes > 0;
+}
+
 function getDatabase(): Database {
   if (!database) initializeStore();
   if (!database) throw new Error("store 初始化失败");

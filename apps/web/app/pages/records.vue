@@ -11,6 +11,9 @@ const records = ref<ProductRecord[]>([])
 const loading = ref(true)
 const errorMessage = ref('')
 const expandedIds = ref(new Set<string>())
+const descriptionOutputs = ref<Record<string, string>>({})
+const descriptionErrors = ref<Record<string, string>>({})
+const generatingIds = ref(new Set<string>())
 
 onMounted(loadRecords)
 
@@ -24,6 +27,117 @@ async function loadRecords(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function generateDescription(record: ProductRecord): Promise<void> {
+  descriptionOutputs.value = { ...descriptionOutputs.value, [record.id]: '' }
+  descriptionErrors.value = { ...descriptionErrors.value, [record.id]: '' }
+  generatingIds.value = new Set(generatingIds.value).add(record.id)
+  let receivedDone = false
+
+  try {
+    const response = await fetch(`/api/records/${encodeURIComponent(record.id)}/describe`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      descriptionErrors.value = {
+        ...descriptionErrors.value,
+        [record.id]: await responseErrorMessage(response),
+      }
+      return
+    }
+    if (!response.body) throw new Error('浏览器无法读取描述生成流')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (!receivedDone) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      buffer = await consumeDescriptionEvents(buffer, record.id, (doneEvent) => {
+        receivedDone = doneEvent
+      })
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) {
+      await consumeDescriptionEvents(`${buffer}\n\n`, record.id, (doneEvent) => {
+        receivedDone = doneEvent
+      })
+    }
+
+    if (!receivedDone) {
+      descriptionErrors.value = {
+        ...descriptionErrors.value,
+        [record.id]: '描述生成连接中断，已收到的文字已保留，请重新生成。',
+      }
+    } else {
+      record.descriptionAi = descriptionOutputs.value[record.id] ?? ''
+    }
+  } catch {
+    descriptionErrors.value = {
+      ...descriptionErrors.value,
+      [record.id]: '描述生成连接中断，已收到的文字已保留，请重新生成。',
+    }
+  } finally {
+    const next = new Set(generatingIds.value)
+    next.delete(record.id)
+    generatingIds.value = next
+  }
+}
+
+async function consumeDescriptionEvents(
+  source: string,
+  recordId: string,
+  setDone: (done: boolean) => void,
+): Promise<string> {
+  let remainder = source.replaceAll('\r\n', '\n')
+  let boundary = remainder.indexOf('\n\n')
+  while (boundary !== -1) {
+    const block = remainder.slice(0, boundary)
+    remainder = remainder.slice(boundary + 2)
+    const eventName = block.split('\n').find((line) => line.startsWith('event: '))?.slice(7)
+    const data = block.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n')
+
+    if (eventName === 'chunk') {
+      const payload: unknown = JSON.parse(data)
+      if (isDescriptionChunk(payload)) {
+        descriptionOutputs.value = {
+          ...descriptionOutputs.value,
+          [recordId]: `${descriptionOutputs.value[recordId] ?? ''}${payload.text}`,
+        }
+      }
+    } else if (eventName === 'error') {
+      throw new Error(data)
+    } else if (eventName === 'done' && data === '[DONE]') {
+      setDone(true)
+    }
+
+    boundary = remainder.indexOf('\n\n')
+  }
+  return remainder
+}
+
+function isDescriptionChunk(value: unknown): value is { text: string } {
+  return typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string'
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.json()
+    if (typeof payload === 'object' && payload !== null && 'data' in payload) {
+      const data = payload.data
+      if (typeof data === 'object' && data !== null && 'message' in data && typeof data.message === 'string') {
+        return data.message
+      }
+    }
+  } catch {
+    // 响应体不是 JSON 时使用状态码兜底。
+  }
+  if (response.status === 401) return '访问码缺失或不正确，请检查后重试。'
+  if (response.status === 404) return '找不到这条商品记录，请刷新页面后重试。'
+  return `描述生成失败（HTTP ${response.status}），请稍后重试。`
 }
 
 function toggleRecord(id: string): void {
@@ -107,7 +221,11 @@ function editValue(value: unknown): string {
           <section v-if="expandedIds.has(record.id)" class="record-ticket" aria-label="已确认的商品终值">
             <div class="ticket-heading"><span>FINAL PRODUCT VALUES</span><b>已确认为人工终值</b></div>
             <dl class="terminal-fields"><div v-for="field in terminalFields(record)" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div></dl>
-            <div class="ticket-description"><strong>商品描述</strong><p>{{ record.description || '未填写' }}</p></div>
+            <div class="ticket-description">
+              <div class="ticket-description-heading"><strong>商品描述</strong><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateDescription(record)">{{ generatingIds.has(record.id) ? '生成中…' : '生成描述' }}</button></div>
+              <p>{{ (descriptionOutputs[record.id] ?? record.descriptionAi ?? record.description) || '未填写' }}<i v-if="generatingIds.has(record.id)" class="typing-caret" aria-label="正在生成" /></p>
+              <span v-if="descriptionErrors[record.id]" class="description-error" role="alert">{{ descriptionErrors[record.id] }}</span>
+            </div>
             <div class="ticket-skus"><strong>SKU 规格</strong><span>{{ record.sku.map((sku) => `${sku.color} / ${sku.size}：库存 ${sku.stock}，吊牌价 ¥${sku.tagPrice}，批发价 ¥${sku.wholesalePrice}`).join('；') }}</span></div>
             <div v-if="record.edits.length" class="edits-flow">
               <strong>人工修正流水</strong>
@@ -152,7 +270,13 @@ function editValue(value: unknown): string {
 .terminal-fields dt,.ticket-description strong,.ticket-skus strong,.edits-flow > strong { margin-bottom: 4px; color: var(--c-ink-2); font-size: var(--font-xs); }
 .terminal-fields dd { margin: 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
 .ticket-description,.ticket-skus { padding-top: 10px; border-top: 1px solid var(--c-border); }
+.ticket-description-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .ticket-description p { margin: 5px 0; white-space: pre-wrap; font-size: var(--font-xs); }
+.describe-button { padding: 5px 9px; border: 1px solid var(--c-primary); background: transparent; color: var(--c-primary); font-size: var(--font-xs); cursor: pointer; }
+.describe-button:disabled { opacity: .6; cursor: wait; }
+.typing-caret { display: inline-block; width: 1px; height: 1em; margin-left: 2px; background: var(--c-primary); vertical-align: text-bottom; animation: typing-caret-blink 1s steps(2, start) infinite; }
+.description-error { color: var(--c-error); font-size: var(--font-xs); }
+@keyframes typing-caret-blink { to { visibility: hidden; } }
 .ticket-skus { display: grid; gap: 5px; font-size: var(--font-xs); }
 .edits-flow { display: grid; gap: 7px; margin-top: 12px; }
 .edit-flow-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: var(--font-xs); }
