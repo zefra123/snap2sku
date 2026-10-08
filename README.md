@@ -21,7 +21,7 @@ pnpm dev
 
 打开终端显示的本地地址。添加 JPG、PNG 或 WebP 图片后点击「识别商品」。模拟场景包括照片中可读到吊牌价（`tagPrice: 399`）、未见吊牌（`tagPrice: null`），以及信息不足时全 null 结果的兜底演示。图片仍经过本地上传接口，模拟结果不会请求视觉模型。
 
-录入流程包含图片压缩、识别结果确认、SKU 库存/价格填写和本地记录保存。记录详情支持「生成描述」：`NUXT_VISION_MOCK=1` 时使用本地描述 fixture，以 SSE 每 200ms 推送一段并保存到 `descriptionAi`。真实描述模型尚未接入，mock 关闭时接口会返回 `E_DESCRIPTION_UNAVAILABLE`。
+录入流程包含图片压缩、识别结果确认、SKU 库存/价格填写和本地记录保存。记录详情支持「生成描述」：`NUXT_VISION_MOCK=1` 时使用本地描述 fixture，以 SSE 每 200ms 推送一段并保存到 `descriptionAi`；`NUXT_VISION_MOCK=0` 时调用真实 GLM 模型生成描述并按 SSE 输出，未配置 `NUXT_VISION_API_KEY` 时返回 503 `E_DESCRIPTION_UNAVAILABLE`。
 
 上传图片写入项目根目录的 `data/uploads/`，录入记录写入 `data/records.sqlite`（WAL 模式）。首次启动会把旧 `data/records.json` 导入 SQLite，并改名保留为 `data/records.json.bak`。这些目录不位于 Nuxt `public/` 下，不作为静态资源公开。
 
