@@ -3,6 +3,7 @@ import type { H3Event } from "h3";
 import {
   AUDIENCES,
   CATEGORIES,
+  DescriptionVariantsSchema,
   DescribeResultSchema,
   RecognizeResultSchema,
   SEASONS,
@@ -11,9 +12,12 @@ import {
   type RecognizeResponse,
   type ModelUsage,
   type DescribeResult,
+  type DescriptionVariants,
 } from "@scope/shared/schema";
 import {
+  DESCRIPTION_VARIANTS_SYSTEM_PROMPT,
   DESCRIPTION_SYSTEM_PROMPT,
+  buildDescriptionVariantsUserPrompt,
   buildDescriptionUserPrompt,
 } from "@scope/prompts/describe";
 import {
@@ -65,12 +69,36 @@ export interface DescriptionGeneration {
   costEstimate: number;
 }
 
+export interface DescriptionVariantsGeneration {
+  result: DescriptionVariants;
+  usage: ModelUsage;
+  costEstimate: number;
+}
+
 export function createDescriptionGeneration(
   result: DescribeResult,
   payload: unknown,
   inputPricePerMillion: number,
   outputPricePerMillion: number,
 ): DescriptionGeneration {
+  const usage = parseModelUsage(payload);
+  return {
+    result,
+    usage,
+    costEstimate: calculateRecognitionCost(
+      usage,
+      inputPricePerMillion,
+      outputPricePerMillion,
+    ),
+  };
+}
+
+export function createDescriptionVariantsGeneration(
+  result: DescriptionVariants,
+  payload: unknown,
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): DescriptionVariantsGeneration {
   const usage = parseModelUsage(payload);
   return {
     result,
@@ -373,6 +401,101 @@ export async function describeProduct(
   }
 
   failApi(422, "E_RECOGNIZE_INVALID", "描述模型重试后仍未通过数据校验");
+}
+
+export async function describeProductVariants(
+  source: unknown,
+  event: H3Event,
+): Promise<DescriptionVariantsGeneration> {
+  const config = useRuntimeConfig(event);
+  if (!config.visionApiKey) {
+    failApi(
+      503,
+      "E_DESCRIPTION_UNAVAILABLE",
+      "描述生成服务未配置视觉模型 API key",
+    );
+  }
+
+  const endpoint = getChatCompletionsEndpoint(config.visionBaseUrl);
+  const inputPricePerMillion = Number(config.visionInputPricePerMillion);
+  const outputPricePerMillion = Number(config.visionOutputPricePerMillion);
+  let repairPrompt: string | undefined;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetchModelResponse(
+      endpoint,
+      config.visionApiKey,
+      config.visionModel,
+      [
+        {
+          role: "system",
+          content: repairPrompt
+            ? `${DESCRIPTION_VARIANTS_SYSTEM_PROMPT}\n\n${repairPrompt}`
+            : DESCRIPTION_VARIANTS_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: buildDescriptionVariantsUserPrompt(source),
+        },
+      ],
+    );
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      repairPrompt =
+        "上一次响应正文不是有效 JSON。请重新生成三种平台文案，并只返回符合格式的 JSON。";
+      continue;
+    }
+
+    const content = extractModelText(payload);
+    const decoded = content
+      ? parseModelJson(content)
+      : { success: false as const };
+    if (!decoded.success) {
+      repairPrompt =
+        "上一次响应不是有效 JSON。请按系统提示重新生成三个平台文案，只返回 JSON 对象，不要输出说明文字或 Markdown。";
+      continue;
+    }
+
+    const parsed = DescriptionVariantsSchema.safeParse(decoded.data);
+    if (parsed.success) {
+      return createDescriptionVariantsGeneration(
+        parsed.data,
+        payload,
+        inputPricePerMillion,
+        outputPricePerMillion,
+      );
+    }
+
+    if (attempt === 1) {
+      const normalized = DescriptionVariantsSchema.safeParse(
+        normalizeDescriptionVariants(decoded.data),
+      );
+      if (normalized.success) {
+        return createDescriptionVariantsGeneration(
+          normalized.data,
+          payload,
+          inputPricePerMillion,
+          outputPricePerMillion,
+        );
+      }
+    }
+    repairPrompt = `上一次 JSON 未通过 schema 校验，请修复三个平台字段并只返回 JSON：${parsed.error.issues
+      .slice(0, 10)
+      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+      .join("; ")}`;
+  }
+
+  failApi(422, "E_RECOGNIZE_INVALID", "平台描述模型重试后仍未通过数据校验");
+}
+
+function normalizeDescriptionVariants(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const normalized = { ...value };
+  for (const platform of Object.keys(DescriptionVariantsSchema.shape)) {
+    normalized[platform] = normalizeGeneratedDescription(normalized[platform]);
+  }
+  return normalized;
 }
 
 export function normalizeGeneratedDescription(value: unknown): unknown {

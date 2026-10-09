@@ -89,6 +89,12 @@ export const DescribeResultSchema = z.object({
   }),
 });
 
+export const DescriptionVariantsSchema = z.object({
+  douyin: DescribeResultSchema.describe("抖音"),
+  xiaohongshu: DescribeResultSchema.describe("小红书"),
+  shipinhao: DescribeResultSchema.describe("视频号"),
+});
+
 export const UploadFileSchema = z.object({
   fileId: z.string().uuid(),
   originalName: z.string().min(1),
@@ -127,6 +133,7 @@ export const ProductRecordSchema = z.object({
   sku: z.array(SKUItemSchema).min(1),
   description: z.string(),
   descriptionAi: z.string().optional(),
+  descriptionVariantsAi: DescriptionVariantsSchema.optional(),
   aiCorrect: z.record(z.string(), z.boolean()),
   costEstimate: z.number().nonnegative(),
 });
@@ -136,6 +143,8 @@ export type ModelUsage = z.infer<typeof ModelUsageSchema>;
 export type RecognizeResponse = z.infer<typeof RecognizeResponseSchema>;
 export type DescriptionSource = z.infer<typeof DescriptionSourceSchema>;
 export type DescribeResult = z.infer<typeof DescribeResultSchema>;
+export type DescriptionVariants = z.infer<typeof DescriptionVariantsSchema>;
+export type DescriptionPlatform = keyof typeof DescriptionVariantsSchema.shape;
 export type UploadFile = z.infer<typeof UploadFileSchema>;
 export type SKUItem = z.infer<typeof SKUItemSchema>;
 export type ProductRecord = z.infer<typeof ProductRecordSchema>;
