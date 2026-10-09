@@ -1,4 +1,4 @@
-import { RecognizeResultSchema } from "@scope/shared/schema";
+import { RecognizeResponseSchema } from "@scope/shared/schema";
 import { failApi } from "../utils/api-error";
 import { recognizeImage, type MockFixture } from "../utils/vision";
 
@@ -18,6 +18,6 @@ export default defineEventHandler(async (event) => {
       : body.mockFixture === "allNull"
         ? "allNull"
         : "tagPrice";
-  const result = await recognizeImage(body.fileId, fixture, event);
-  return RecognizeResultSchema.parse(result);
+  const response = await recognizeImage(body.fileId, fixture, event);
+  return RecognizeResponseSchema.parse(response);
 });

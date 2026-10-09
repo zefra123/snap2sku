@@ -61,6 +61,18 @@ export const RecognizeResultSchema = z.object({
   }),
 });
 
+export const ModelUsageSchema = z.object({
+  prompt_tokens: z.number().int().nonnegative(),
+  completion_tokens: z.number().int().nonnegative(),
+  total_tokens: z.number().int().nonnegative(),
+});
+
+export const RecognizeResponseSchema = z.object({
+  result: RecognizeResultSchema,
+  usage: ModelUsageSchema,
+  costEstimate: z.number().nonnegative(),
+});
+
 export const DescriptionSourceSchema = RecognizeResultSchema.pick({
   category: true,
   style: true,
@@ -120,6 +132,8 @@ export const ProductRecordSchema = z.object({
 });
 
 export type RecognizeResult = z.infer<typeof RecognizeResultSchema>;
+export type ModelUsage = z.infer<typeof ModelUsageSchema>;
+export type RecognizeResponse = z.infer<typeof RecognizeResponseSchema>;
 export type DescriptionSource = z.infer<typeof DescriptionSourceSchema>;
 export type DescribeResult = z.infer<typeof DescribeResultSchema>;
 export type UploadFile = z.infer<typeof UploadFileSchema>;

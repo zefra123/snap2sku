@@ -29,6 +29,8 @@ pnpm dev
 
 真实视觉模型模式要求仅在本机服务端配置 `NUXT_VISION_API_KEY`；也可通过 `NUXT_VISION_MODEL` 和 `NUXT_VISION_BASE_URL` 设置模型与兼容 API 地址。不要把密钥提交到仓库或发送到聊天中。
 
+识别接口会返回模型 usage，并按输入/输出 token 单价估算成本；`NUXT_VISION_INPUT_PRICE_PER_MILLION` 与 `NUXT_VISION_OUTPUT_PRICE_PER_MILLION` 的单位均为元/百万 token。当前 GLM-4V-Flash 默认按公开免费口径设为 0，套餐或模型价格变化时可调整这两个值。**估算口径可调**，它不是账单金额；mock 模式 usage 与成本均为 0。公开口径参考[智谱发布 GLM-4V-Flash 免费模型的公告](https://developer.volcengine.com/articles/7447412792165924914)。
+
 ## 检查
 
 ```powershell

@@ -8,6 +8,8 @@ import {
   SEASONS,
   STYLES,
   type RecognizeResult,
+  type RecognizeResponse,
+  type ModelUsage,
   type DescribeResult,
 } from "@scope/shared/schema";
 import {
@@ -22,6 +24,50 @@ import { failApi } from "./api-error";
 import { findUploadPath } from "./store";
 
 export type MockFixture = "tagPrice" | "noTagPrice" | "allNull";
+
+const zeroUsage: ModelUsage = {
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+};
+
+export function parseModelUsage(payload: unknown): ModelUsage {
+  const rawUsage =
+    isRecord(payload) && isRecord(payload.usage) ? payload.usage : undefined;
+  const promptTokens = readTokenCount(rawUsage?.prompt_tokens);
+  const completionTokens = readTokenCount(rawUsage?.completion_tokens);
+  const totalTokens = rawUsage?.total_tokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: isTokenCount(totalTokens)
+      ? totalTokens
+      : promptTokens + completionTokens,
+  };
+}
+
+export function calculateRecognitionCost(
+  usage: ModelUsage,
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): number {
+  const inputPrice = validPrice(inputPricePerMillion);
+  const outputPrice = validPrice(outputPricePerMillion);
+  const cost =
+    (usage.prompt_tokens * inputPrice + usage.completion_tokens * outputPrice) /
+    1_000_000;
+  return Number(cost.toFixed(8));
+}
+
+export function createMockRecognizeResponse(
+  fixture: MockFixture,
+): RecognizeResponse {
+  return {
+    result: getMockRecognizeResult(fixture),
+    usage: zeroUsage,
+    costEstimate: 0,
+  };
+}
 
 const fixtures: Record<MockFixture, unknown> = {
   tagPrice: {
@@ -157,6 +203,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readTokenCount(value: unknown): number {
+  return isTokenCount(value) ? value : 0;
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validPrice(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
 function isOneOf<const Values extends readonly string[]>(
   value: unknown,
   values: Values,
@@ -170,13 +228,13 @@ export async function recognizeImage(
   fileId: string,
   fixture: MockFixture,
   event: H3Event,
-): Promise<RecognizeResult> {
+): Promise<RecognizeResponse> {
   const config = useRuntimeConfig(event);
   const imagePath = await findUploadPath(fileId);
   if (!imagePath) failApi(404, "E_FILE_NOT_FOUND", "找不到已上传的图片");
   const mockEnabled =
     String(config.visionMock) === "1" || config.public.visionMock;
-  if (mockEnabled) return getMockRecognizeResult(fixture);
+  if (mockEnabled) return createMockRecognizeResponse(fixture);
 
   if (!config.visionApiKey) {
     failApi(
@@ -198,6 +256,8 @@ export async function recognizeImage(
     config.visionApiKey,
     config.visionModel,
     config.visionBaseUrl,
+    Number(config.visionInputPricePerMillion),
+    Number(config.visionOutputPricePerMillion),
   );
 }
 
@@ -319,7 +379,9 @@ async function requestVisionModel(
   apiKey: string,
   model: string,
   baseUrl: string,
-): Promise<RecognizeResult> {
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): Promise<RecognizeResponse> {
   const imageBase64 = image.toString("base64");
   const endpoint = getChatCompletionsEndpoint(baseUrl);
   let repairPrompt: string | undefined;
@@ -353,6 +415,7 @@ async function requestVisionModel(
     }
 
     const content = extractModelText(payload);
+    const usage = parseModelUsage(payload);
     if (!content) {
       repairPrompt =
         "上一次响应缺少识别结果文本。请重新识别并仅返回符合格式的 JSON。";
@@ -375,7 +438,17 @@ async function requestVisionModel(
     const result = RecognizeResultSchema.safeParse(
       normalizeRecognizeResult(decoded.data),
     );
-    if (result.success) return result.data;
+    if (result.success) {
+      return {
+        result: result.data,
+        usage,
+        costEstimate: calculateRecognitionCost(
+          usage,
+          inputPricePerMillion,
+          outputPricePerMillion,
+        ),
+      };
+    }
     repairPrompt = `上一次 JSON 未通过 schema 校验，请修复并只返回 JSON：${result.error.issues
       .slice(0, 8)
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)

@@ -252,7 +252,7 @@ function editValue(value: unknown): string {
             <span class="record-product"><strong>{{ record.recognize.item_name }}</strong><small>{{ record.recognize.category }} · {{ record.recognize.colors.map((color) => color.name).join(' / ') }}</small></span>
             <span class="record-metric">{{ record.sku.length }}</span>
             <span class="record-metric">{{ formatDuration(record) }}</span>
-            <span class="record-metric">¥{{ record.costEstimate.toFixed(3) }}</span>
+            <span class="record-metric">¥{{ record.costEstimate.toFixed(6) }}</span>
             <span class="record-edit-count">{{ record.edits.length ? `${record.edits.length} 项已改` : '无修改' }}</span>
           </button>
           <section v-if="expandedIds.has(record.id)" class="record-ticket" aria-label="已确认的商品终值">

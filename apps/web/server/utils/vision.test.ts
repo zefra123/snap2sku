@@ -1,15 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
   DescribeResultSchema,
+  RecognizeResponseSchema,
   RecognizeResultSchema,
 } from "@scope/shared/schema";
 import {
+  calculateRecognitionCost,
+  createMockRecognizeResponse,
   getMockRecognizeResult,
   normalizeGeneratedDescription,
   normalizeRecognizeResult,
+  parseModelUsage,
 } from "./vision";
 
 describe("visual adapter mock fixtures", () => {
+  it("parses model token usage and estimates input/output cost per million tokens", () => {
+    const usage = parseModelUsage({
+      usage: {
+        prompt_tokens: 1250,
+        completion_tokens: 250,
+        total_tokens: 1500,
+      },
+    });
+
+    expect(usage).toEqual({
+      prompt_tokens: 1250,
+      completion_tokens: 250,
+      total_tokens: 1500,
+    });
+    expect(calculateRecognitionCost(usage, 2, 8)).toBe(0.0045);
+  });
+
+  it("keeps mock usage and estimated cost valid and at zero", () => {
+    const response = createMockRecognizeResponse("tagPrice");
+
+    expect(RecognizeResponseSchema.safeParse(response).success).toBe(true);
+    expect(response.usage).toEqual({
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    });
+    expect(response.costEstimate).toBe(0);
+  });
+
   it("retains the tag-price and no-tag-price fixtures without model calls", () => {
     const withPrice = getMockRecognizeResult("tagPrice");
     const withoutPrice = getMockRecognizeResult("noTagPrice");

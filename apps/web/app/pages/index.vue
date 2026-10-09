@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   AUDIENCES,
   CATEGORIES,
+  RecognizeResponseSchema,
   ProductRecordSchema,
   RECOGNIZE_FIELD_NAMES,
   RecognizeResultSchema,
@@ -10,6 +11,7 @@ import {
   SIZES_TOP,
   STYLES,
   type ProductRecord,
+  type ModelUsage,
   type RecognizeResult,
   type SKUItem,
   type UploadFile,
@@ -51,6 +53,9 @@ const sizeToAdd = ref<string>('XL')
 const skuValues = reactive<Record<string, { stock: number; tagPrice: number | null; wholesalePrice: number | null }>>({})
 const description = ref('')
 const recordList = ref<ProductRecord[]>([])
+const recognitionUsage = ref<ModelUsage>()
+const recognitionCostEstimate = ref(0)
+const currentRecognitionSaved = ref(false)
 const uploadStart = ref<number>()
 const recognizedAt = ref<number>()
 const busy = ref(false)
@@ -85,6 +90,14 @@ const validSku = computed<SKUItem[]>(() => skuCells.value.flatMap((cell) => {
 const readySkuCount = computed(() => validSku.value.length)
 const uploadComplete = computed(() => imageQueue.value.length > 0 && imageQueue.value.every((image) => image.uploaded))
 const editedFieldCount = computed(() => Object.keys(edits.value).length)
+const totalCostEstimate = computed(() => recordList.value.reduce(
+  (total, record) => total + record.costEstimate,
+  result.value && !currentRecognitionSaved.value ? recognitionCostEstimate.value : 0,
+))
+
+function formatCost(value: number): string {
+  return value.toFixed(6)
+}
 
 function skuKey(color: string, size: string): string {
   return `${color}::${size}`
@@ -136,6 +149,9 @@ function loadExample(): void {
   edits.value = {}
   aiCorrect.value = {}
   description.value = ''
+  recognitionUsage.value = undefined
+  recognitionCostEstimate.value = 0
+  currentRecognitionSaved.value = false
   sizeSelection.value = ['S', 'M', 'L']
   for (const [index, size] of sizeSelection.value.entries()) {
     skuValues[skuKey('奶油黄', size)] = { stock: index === 0 ? 0 : 12 + index, tagPrice: 129, wholesalePrice: 58 }
@@ -277,6 +293,9 @@ async function selectFiles(files: FileList | File[]): Promise<void> {
     result.value = undefined
     initialResult.value = undefined
     recognizedFileId.value = undefined
+    recognitionUsage.value = undefined
+    recognitionCostEstimate.value = 0
+    currentRecognitionSaved.value = false
   }
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -305,6 +324,9 @@ function removeImage(key: string): void {
     result.value = undefined
     initialResult.value = undefined
     recognizedFileId.value = undefined
+    recognitionUsage.value = undefined
+    recognitionCostEstimate.value = 0
+    currentRecognitionSaved.value = false
   }
 }
 
@@ -354,11 +376,14 @@ async function recognize(): Promise<void> {
   errorMessage.value = ''
   statusMessage.value = '正在识别商品信息…'
   try {
-    const recognized = await $fetch<RecognizeResult>('/api/recognize', {
+    const recognizedResponse = RecognizeResponseSchema.parse(await $fetch('/api/recognize', {
       method: 'POST',
       body: { fileId: firstImage.uploaded.fileId, mockFixture: mockFixture.value },
-    })
-    result.value = RecognizeResultSchema.parse(recognized)
+    }))
+    result.value = recognizedResponse.result
+    recognitionUsage.value = recognizedResponse.usage
+    recognitionCostEstimate.value = recognizedResponse.costEstimate
+    currentRecognitionSaved.value = false
     initialResult.value = structuredClone(result.value)
     recognizedFileId.value = firstImage.uploaded.fileId
     confirmedFields.clear()
@@ -434,11 +459,12 @@ async function submitRecord(): Promise<void> {
       sku: validSku.value,
       description: description.value,
       aiCorrect: aiCorrect.value,
-      costEstimate: 0,
+      costEstimate: recognitionCostEstimate.value,
     }
     const record = ProductRecordSchema.parse(draft)
     const saved = await $fetch<ProductRecord>('/api/records', { method: 'POST', body: record })
     recordList.value = [saved, ...recordList.value]
+    currentRecognitionSaved.value = true
     statusMessage.value = '商品记录已保存。'
   } catch (error) {
     errorMessage.value = readErrorMessage(error)
@@ -468,7 +494,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
 <template>
   <div class="app-shell">
-    <AppHeader status-text="本地记录" :badge="mockEnabled ? 'MOCK 模式' : undefined" />
+    <AppHeader status-text="本地记录" :badge="mockEnabled ? 'MOCK 模式' : undefined" :cost-text="`累计估算 ¥${formatCost(totalCostEstimate)}`" />
 
     <main id="top" class="workspace">
       <section class="page-heading">
@@ -482,6 +508,11 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <div v-if="errorMessage" class="notice notice--error" role="alert"><span>!</span>{{ errorMessage }}</div>
       <div v-if="statusMessage" class="notice notice--success" role="status"><span>✓</span>{{ statusMessage }}</div>
+      <div v-if="recognitionUsage" class="usage-summary" role="status">
+        <strong>本次识别用量</strong>
+        <span class="usage-value">{{ recognitionUsage.prompt_tokens }} 输入 / {{ recognitionUsage.completion_tokens }} 输出 / {{ recognitionUsage.total_tokens }} tokens</span>
+        <span class="usage-cost">估算 ¥{{ formatCost(recognitionCostEstimate) }}</span>
+      </div>
 
       <div class="work-grid">
         <aside class="upload-column">
@@ -680,6 +711,10 @@ h1 em { color: var(--c-accent); font-style: normal; }
 .notice > span { font-family: var(--font-mono); font-weight: 700; }
 .notice--error { border-color: color-mix(in oklch, var(--c-error) 35%, var(--c-border)); color: var(--c-error); background: color-mix(in oklch, var(--c-error) 4%, var(--c-surface)); }
 .notice--success { color: var(--c-success); background: color-mix(in oklch, var(--c-success) 4%, var(--c-surface)); }
+.usage-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 9px 13px; border: 1px solid var(--c-border); color: var(--c-ink-2); font-size: var(--font-xs); }
+.usage-summary strong { color: var(--c-ink); font-weight: 600; }
+.usage-value,.usage-cost { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.usage-cost { margin-left: auto; color: var(--c-primary); }
 .work-grid { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); align-items: start; gap: 16px; }
 .upload-column,.details-column { display: grid; gap: 14px; min-width: 0; }
 .panel { background: var(--c-surface); border: 1px solid var(--c-border); box-shadow: var(--shadow-card); }

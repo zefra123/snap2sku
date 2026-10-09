@@ -25,6 +25,8 @@ export default defineNuxtConfig({
     visionApiKey: "",
     visionModel: "glm-4v-flash",
     visionBaseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    visionInputPricePerMillion: 0,
+    visionOutputPricePerMillion: 0,
     visionMock: process.env.NUXT_VISION_MOCK ?? "0",
     public: {
       visionMock: process.env.NUXT_VISION_MOCK === "1",

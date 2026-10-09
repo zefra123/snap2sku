@@ -1,5 +1,5 @@
 <script setup lang="ts">
-withDefaults(defineProps<{ statusText?: string; badge?: string }>(), {
+withDefaults(defineProps<{ statusText?: string; badge?: string; costText?: string }>(), {
   statusText: '本地记录',
 })
 </script>
@@ -15,6 +15,7 @@ withDefaults(defineProps<{ statusText?: string; badge?: string }>(), {
       <NuxtLink to="/records">记录列表</NuxtLink>
     </nav>
     <div class="topbar-meta">
+      <span v-if="costText" class="cost-counter">{{ costText }}</span>
       <span class="local-state"><span class="state-dot" />{{ statusText }}</span>
       <span v-if="badge" class="mode-badge">{{ badge }}</span>
     </div>
@@ -30,6 +31,7 @@ withDefaults(defineProps<{ statusText?: string; badge?: string }>(), {
 .main-nav a { padding: 7px 10px; color: var(--c-ink-2); font-size: var(--font-xs); text-decoration: none; }
 .main-nav a.router-link-active { color: var(--c-ink); background: var(--c-bg); }
 .topbar-meta { justify-self: end; display: flex; align-items: center; gap: 14px; color: var(--c-ink-2); font-size: var(--font-xs); }
+.cost-counter { color: var(--c-ink); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .local-state { display: inline-flex; align-items: center; }
 .state-dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: var(--radius-full); background: var(--c-success); vertical-align: 1px; }
 .mode-badge { border: 1px solid var(--c-border); padding: 4px 7px; color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); letter-spacing: .08em; }
