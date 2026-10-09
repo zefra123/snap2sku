@@ -98,6 +98,7 @@ pnpm typecheck  # vue-tsc 全量类型检查，必须 0 错误
 - 标识符英文、注释和提交信息中文；注释只写"为什么"。
 - 字段命名与 `packages/shared` 的 schema 一致，不另起别名。
 - **SKU 价格字段名固定**：`tagPrice`（吊牌价，可预填 AI 建议值）/ `wholesalePrice`（批发单价）。**禁止出现 `listPrice` / `salePrice`**（PRD V1.3 已废弃的旧命名，DB 列名对应 tag_price / wholesale_price）。识别结果的 AI 建议吊牌价字段为 `tagPrice: number | null`，吊牌不可见必须 null，禁止猜。
+- **多平台文案变体字段名固定（F-10）**：记录字段为 `descriptionVariantsAi`，平台 key 固定 `douyin` / `xiaohongshu` / `shipinhao`（见 `DescriptionVariantsSchema`），各平台结构与 `DescribeResultSchema` 一致。**禁止另起 platform1/2/3、variantList 之类命名**。变体生成接口与单描述接口分离，SSE/断流保护/成本累加口径必须与 `/api/records/:id/describe` 一致。
 
 ## 9. 交付前自查
 

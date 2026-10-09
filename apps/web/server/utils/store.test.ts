@@ -16,6 +16,7 @@ import {
   readRecords,
   getRecordById,
   appendRecord,
+  saveGeneratedDescriptionVariants,
 } from "./store";
 
 const temporaryDirectories: string[] = [];
@@ -36,6 +37,31 @@ describe("SQLite store", () => {
     await appendRecord(record);
 
     await expect(readRecords()).resolves.toEqual([record]);
+  });
+
+  it("持久化并读取多平台文案", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const variants = {
+      douyin: {
+        description: "抖音文案".repeat(15),
+        confidence: { description: 0.8, overall: 0.8 },
+      },
+      xiaohongshu: {
+        description: "小红书文案".repeat(15),
+        confidence: { description: 0.8, overall: 0.8 },
+      },
+      shipinhao: {
+        description: "视频号文案".repeat(15),
+        confidence: { description: 0.8, overall: 0.8 },
+      },
+    };
+    await saveGeneratedDescriptionVariants(record.id, variants, 0.003);
+    await expect(getRecordById(record.id)).resolves.toMatchObject({
+      descriptionVariantsAi: variants,
+      costEstimate: 0.015,
+    });
   });
 
   it("按 ID 读取单条记录且不会解析其他脏记录", async () => {

@@ -14,6 +14,8 @@ const loading = ref(true)
 const errorMessage = ref('')
 const expandedIds = ref(new Set<string>())
 const descriptionOutputs = ref<Record<string, string>>({})
+const variantOutputs = ref<Record<string, Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', string>>>>({})
+const activePlatforms = ref<Record<string, 'douyin' | 'xiaohongshu' | 'shipinhao'>>({})
 const descriptionErrors = ref<Record<string, string>>({})
 const descriptionConfidences = ref<Record<string, number>>({})
 const generatingIds = ref(new Set<string>())
@@ -126,6 +128,67 @@ async function generateDescription(record: ProductRecord): Promise<void> {
     next.delete(record.id)
     generatingIds.value = next
   }
+}
+
+async function generateVariants(record: ProductRecord): Promise<void> {
+  const outputs: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', string>> = {}
+  variantOutputs.value = { ...variantOutputs.value, [record.id]: outputs }
+  generatingIds.value = new Set(generatingIds.value).add(record.id)
+  let receivedDone = false
+  let pendingCostEstimate: number | undefined
+  try {
+    const response = await fetch(`/api/records/${encodeURIComponent(record.id)}/describe-variants`, { method: 'POST' })
+    if (!response.ok) { descriptionErrors.value = { ...descriptionErrors.value, [record.id]: await responseErrorMessage(response) }; return }
+    if (!response.body) throw new Error('浏览器无法读取描述生成流')
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (!receivedDone) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      buffer = consumeVariantEvents(buffer, record.id, outputs, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) consumeVariantEvents(`${buffer}\n\n`, record.id, outputs, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
+    if (!receivedDone) descriptionErrors.value = { ...descriptionErrors.value, [record.id]: '描述未保存，请重新生成' }
+    else {
+      record.descriptionVariantsAi = {
+        douyin: { description: outputs.douyin ?? '', confidence: { description: 0.88, overall: 0.88 } },
+        xiaohongshu: { description: outputs.xiaohongshu ?? '', confidence: { description: 0.88, overall: 0.88 } },
+        shipinhao: { description: outputs.shipinhao ?? '', confidence: { description: 0.88, overall: 0.88 } },
+      }
+      if (pendingCostEstimate !== undefined) record.costEstimate = pendingCostEstimate
+    }
+  } catch {
+    descriptionErrors.value = { ...descriptionErrors.value, [record.id]: '描述未保存，请重新生成' }
+  } finally {
+    const next = new Set(generatingIds.value); next.delete(record.id); generatingIds.value = next
+  }
+}
+
+function consumeVariantEvents(source: string, recordId: string, outputs: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', string>>, setDone: (done: boolean) => void, setCostEstimate: (cost: number) => void): string {
+  let remainder = source.replaceAll('\r\n', '\n')
+  let boundary = remainder.indexOf('\n\n')
+  while (boundary !== -1) {
+    const block = remainder.slice(0, boundary); remainder = remainder.slice(boundary + 2)
+    const eventName = block.split('\n').find((line) => line.startsWith('event: '))?.slice(7)
+    const data = block.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n')
+    if (eventName === 'chunk') {
+      const payload: unknown = JSON.parse(data)
+      if (typeof payload === 'object' && payload !== null && 'platform' in payload && 'text' in payload && typeof payload.platform === 'string' && ['douyin', 'xiaohongshu', 'shipinhao'].includes(payload.platform) && typeof payload.text === 'string') {
+        const platform = payload.platform as 'douyin' | 'xiaohongshu' | 'shipinhao'
+        outputs[platform] = `${outputs[platform] ?? ''}${payload.text}`
+        variantOutputs.value = { ...variantOutputs.value, [recordId]: { ...outputs } }
+      }
+    } else if (eventName === 'error') throw new Error(data)
+    else if (eventName === 'result') {
+      const payload: unknown = JSON.parse(data)
+      if (typeof payload === 'object' && payload !== null && 'costEstimate' in payload && typeof payload.costEstimate === 'number') setCostEstimate(payload.costEstimate)
+    } else if (eventName === 'done' && data === '[DONE]') setDone(true)
+    boundary = remainder.indexOf('\n\n')
+  }
+  return remainder
 }
 
 async function consumeDescriptionEvents(
@@ -280,8 +343,9 @@ function editValue(value: unknown): string {
             <div class="ticket-heading"><span>FINAL PRODUCT VALUES</span><b>已确认为人工终值</b></div>
             <dl class="terminal-fields"><div v-for="field in terminalFields(record)" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div></dl>
             <div class="ticket-description">
-              <div class="ticket-description-heading"><strong>商品描述</strong><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateDescription(record)">{{ generatingIds.has(record.id) ? '生成中…' : '生成描述' }}</button></div>
-              <p>{{ (descriptionOutputs[record.id] ?? record.descriptionAi ?? record.description) || '未填写' }}<i v-if="generatingIds.has(record.id)" class="typing-caret" aria-label="正在生成" /></p>
+              <div class="ticket-description-heading"><strong>多平台商品描述</strong><div class="description-actions"><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateDescription(record)">生成通用描述</button><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateVariants(record)">{{ generatingIds.has(record.id) ? '生成中…' : '生成三平台文案' }}</button></div></div>
+              <div class="platform-tabs" role="tablist" aria-label="文案平台"><button v-for="platform in [{ key: 'douyin', label: '抖音' }, { key: 'xiaohongshu', label: '小红书' }, { key: 'shipinhao', label: '视频号' }]" :key="platform.key" type="button" role="tab" :aria-selected="(activePlatforms[record.id] ?? 'douyin') === platform.key" @click="activePlatforms[record.id] = platform.key as 'douyin' | 'xiaohongshu' | 'shipinhao'">{{ platform.label }}</button></div>
+              <p>{{ (variantOutputs[record.id]?.[activePlatforms[record.id] ?? 'douyin'] ?? record.descriptionVariantsAi?.[activePlatforms[record.id] ?? 'douyin']?.description ?? descriptionOutputs[record.id] ?? record.descriptionAi ?? record.description) || '未填写' }}<i v-if="generatingIds.has(record.id)" class="typing-caret" aria-label="正在生成" /></p>
               <div v-if="!generatingIds.has(record.id) && descriptionConfidences[record.id] !== undefined" class="description-confidence">
                 <span>AI 描述置信度</span>
                 <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount(descriptionConfidences[record.id]!) < 3 }" :aria-label="`置信度 ${confidenceTickCount(descriptionConfidences[record.id]!)} / 5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount(descriptionConfidences[record.id]!) }" /></span>
@@ -335,6 +399,10 @@ function editValue(value: unknown): string {
 .terminal-fields dd { margin: 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
 .ticket-description,.ticket-skus { padding-top: 10px; border-top: 1px solid var(--c-border); }
 .ticket-description-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.description-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.platform-tabs { display: flex; gap: var(--space-2); margin-top: var(--space-2); border-bottom: 1px solid var(--c-border); }
+.platform-tabs button { min-height: 32px; padding: 4px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--c-ink-2); font-size: var(--font-xs); cursor: pointer; }
+.platform-tabs button[aria-selected="true"] { border-bottom-color: var(--c-primary); color: var(--c-primary); }
 .ticket-description p { margin: 5px 0; white-space: pre-wrap; font-size: var(--font-xs); }
 .describe-button { padding: 5px 9px; border: 1px solid var(--c-primary); background: transparent; color: var(--c-primary); font-size: var(--font-xs); cursor: pointer; }
 .describe-button:disabled { opacity: .6; cursor: wait; }

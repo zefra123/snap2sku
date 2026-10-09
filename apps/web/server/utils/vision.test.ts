@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   DescribeResultSchema,
+  DescriptionVariantsSchema,
   RecognizeResponseSchema,
   RecognizeResultSchema,
 } from "@scope/shared/schema";
 import {
   calculateRecognitionCost,
   createDescriptionGeneration,
+  createMockDescriptionVariants,
   createMockRecognizeResponse,
   getMockRecognizeResult,
   normalizeGeneratedDescription,
@@ -15,6 +17,30 @@ import {
 } from "./vision";
 
 describe("visual adapter mock fixtures", () => {
+  it("creates three schema-valid mock platform variants with distinct copies", () => {
+    const variants = createMockDescriptionVariants({
+      category: "上衣",
+      colors: [{ name: "藏青", hex: "#263A55" }],
+      style: "休闲",
+      seasons: ["秋"],
+      audience: "中性",
+      fabric: null,
+      tagPrice: null,
+      item_name: "藏青宽松休闲上衣",
+      confidence: { category: 0.9, colors: 0.9, style: 0.9, overall: 0.9 },
+    });
+    expect(DescriptionVariantsSchema.safeParse(variants).success).toBe(true);
+    expect(Object.keys(variants)).toEqual([
+      "douyin",
+      "xiaohongshu",
+      "shipinhao",
+    ]);
+    expect(
+      new Set(Object.values(variants).map((variant) => variant.description))
+        .size,
+    ).toBe(3);
+  });
+
   it("parses description model usage and estimates its cost", () => {
     const generated = createDescriptionGeneration(
       DescribeResultSchema.parse({

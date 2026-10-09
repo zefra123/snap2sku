@@ -4,6 +4,7 @@ import {
   AUDIENCES,
   CATEGORIES,
   DescriptionVariantsSchema,
+  DescriptionSourceSchema,
   DescribeResultSchema,
   RecognizeResultSchema,
   SEASONS,
@@ -408,6 +409,13 @@ export async function describeProductVariants(
   event: H3Event,
 ): Promise<DescriptionVariantsGeneration> {
   const config = useRuntimeConfig(event);
+  if (String(config.visionMock ?? "0") === "1") {
+    return {
+      result: createMockDescriptionVariants(source),
+      usage: zeroUsage,
+      costEstimate: 0,
+    };
+  }
   if (!config.visionApiKey) {
     failApi(
       503,
@@ -487,6 +495,30 @@ export async function describeProductVariants(
   }
 
   failApi(422, "E_RECOGNIZE_INVALID", "平台描述模型重试后仍未通过数据校验");
+}
+
+export function createMockDescriptionVariants(
+  source: unknown,
+): DescriptionVariants {
+  const parsedSource = DescriptionSourceSchema.parse(source);
+  const colors = parsedSource.colors
+    .slice(0, 2)
+    .map((color) => color.name)
+    .join("、");
+  const season = parsedSource.seasons.slice(0, 2).join("、");
+  const make = (angle: string): DescribeResult => {
+    const description = `${angle}这款${parsedSource.style}风格的${parsedSource.category}版型利落，${colors}配色耐看，适合${season}季${parsedSource.audience}日常穿着。搭配基础上衣或下装都很协调，可轻松应对通勤、出行与周末休闲场景。整体设计简洁实用，单穿叠搭都自然，为日常造型增添舒适感与层次感。`;
+    const fitted = Array.from(description).slice(0, 99).join("");
+    return DescribeResultSchema.parse({
+      description: fitted,
+      confidence: { description: 0.88, overall: 0.88 },
+    });
+  };
+  return DescriptionVariantsSchema.parse({
+    douyin: make("镜头上身更显精神，"),
+    xiaohongshu: make("日常穿搭灵感，"),
+    shipinhao: make("实穿分享，"),
+  });
 }
 
 function normalizeDescriptionVariants(value: unknown): unknown {

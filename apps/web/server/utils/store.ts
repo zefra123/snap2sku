@@ -50,7 +50,8 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
       ai_correct TEXT,
       cost_estimate REAL NOT NULL DEFAULT 0,
       description TEXT NOT NULL,
-      description_ai TEXT
+      description_ai TEXT,
+      description_variants_ai TEXT
     );
     CREATE TABLE IF NOT EXISTS skus (
       record_id TEXT NOT NULL REFERENCES records(id) ON DELETE CASCADE,
@@ -62,6 +63,16 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
       PRIMARY KEY (record_id, color, size)
     );
   `);
+  const recordColumns = connection
+    .prepare("PRAGMA table_info(records)")
+    .all() as Array<{ name: string }>;
+  if (
+    !recordColumns.some((column) => column.name === "description_variants_ai")
+  ) {
+    connection.exec(
+      "ALTER TABLE records ADD COLUMN description_variants_ai TEXT",
+    );
+  }
   database = connection;
   activeDataDirectory = resolvedDirectory;
 
@@ -134,6 +145,9 @@ export async function readRecords(): Promise<ProductRecord[]> {
       ...(row.description_ai === null
         ? {}
         : { descriptionAi: row.description_ai }),
+      ...(row.description_variants_ai === null
+        ? {}
+        : { descriptionVariantsAi: parseJson(row.description_variants_ai) }),
       sku: skusByRecord.get(row.id) ?? [],
     }),
   );
@@ -172,6 +186,9 @@ export async function getRecordById(
     ...(row.description_ai === null
       ? {}
       : { descriptionAi: row.description_ai }),
+    ...(row.description_variants_ai === null
+      ? {}
+      : { descriptionVariantsAi: parseJson(row.description_variants_ai) }),
     sku,
   });
 }
@@ -198,6 +215,24 @@ export async function saveGeneratedDescription(
       "UPDATE records SET description_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
     )
     .run(description, additionalCostEstimate, recordId);
+  return result.changes > 0;
+}
+
+export async function saveGeneratedDescriptionVariants(
+  recordId: string,
+  descriptionVariantsAi: ProductRecord["descriptionVariantsAi"],
+  additionalCostEstimate = 0,
+): Promise<boolean> {
+  if (!descriptionVariantsAi) return false;
+  const result = getDatabase()
+    .prepare(
+      "UPDATE records SET description_variants_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
+    )
+    .run(
+      JSON.stringify(descriptionVariantsAi),
+      additionalCostEstimate,
+      recordId,
+    );
   return result.changes > 0;
 }
 
@@ -250,8 +285,8 @@ function insertRecord(
       `
     INSERT ${insertMode}INTO records (
       id, created_at, duration_ms, images, recognize, edits, ai_correct,
-      cost_estimate, description, description_ai
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cost_estimate, description, description_ai, description_variants_ai
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .run(
@@ -265,6 +300,9 @@ function insertRecord(
       record.costEstimate,
       record.description,
       record.descriptionAi ?? null,
+      record.descriptionVariantsAi
+        ? JSON.stringify(record.descriptionVariantsAi)
+        : null,
     );
 
   if (ignoreExisting && result.changes === 0) return;
@@ -299,6 +337,7 @@ interface DatabaseRow {
   cost_estimate: number;
   description: string;
   description_ai: string | null;
+  description_variants_ai: string | null;
 }
 
 interface SkuRow {

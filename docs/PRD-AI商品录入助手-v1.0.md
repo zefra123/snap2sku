@@ -1,4 +1,4 @@
-# PRD：AI 商品录入助手（snap2sku）V1.8
+# PRD：AI 商品录入助手（snap2sku）V1.9
 
 > 本文档按「可判定」标准撰写，供 AI 编码代理与人共同使用。AI 执行约定：**schema 为唯一事实源（枚举、字段、校验一律从 `packages/shared` 引用，禁止手写副本）；所有异常必须走错误码表；每条验收标准是完成的定义。**
 
@@ -6,7 +6,7 @@
 
 | 项         | 值                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 版本       | V1.8（2026-10-09）：W3 视觉识别与描述生成接入真实 GLM 模型（`NUXT_VISION_MOCK=0` 时生效）；E_DESCRIPTION_UNAVAILABLE 触发条件改为「未配置 API key」。V1.7（2026-10-09）：W2-2 新增商品描述 SSE mock 接口、持久化 descriptionAi、描述输出 schema 与相关错误码。V1.6（2026-10-08）：W2 提前落地访问码门禁；补充 E_ACCESS_CODE_REQUIRED 契约。V1.5（2026-10-07）：错误码表补 E_VALIDATION、清理与 E_RECOGNIZE_INVALID 重复的 E_PARSE；抽出 AppHeader 组件统一双页头部（顶栏高对齐规范 48px、SKU 单元格 32px）。V1.4（2026-10-07）：补充 E_FILE_NOT_FOUND、E_WRITE_FAILED 文件与记录写入错误契约。V1.3（2026-10-06）：合并两条 V1.2 分支——① 契约修订：识别 schema 增加 tagPrice、SKU 价格字段统一为 吊牌价/批发单价（tagPrice/wholesalePrice）、新增 descriptionAi 使描述编辑率可计算、新增 §9 NFR、F-13 入需求表；② 仓库侧拍板：F-13 访问码门禁 + 存储实现约束（原子写/备份 API）。同时技术栈 Nuxt 3 → Nuxt 4.5.2（对齐实际安装与 AGENTS.md）。V1.2：V1.0 基础上补充第 8 节 UI/UX 设计规范 |
+| 版本       | V1.9（2026-10-09）：F-10 契约细化——新增 `descriptionVariantsAi` 字段与三平台变体路由 `/api/records/:id/describe-variants`（SSE 复用描述断流保护与成本累加口径）；修正 §5.4 描述路由路径为实际实现、§6 E_WRITE_FAILED 残留的 records.json 口径。V1.8（2026-10-09）：W3 视觉识别与描述生成接入真实 GLM 模型（`NUXT_VISION_MOCK=0` 时生效）；E_DESCRIPTION_UNAVAILABLE 触发条件改为「未配置 API key」。V1.7（2026-10-09）：W2-2 新增商品描述 SSE mock 接口、持久化 descriptionAi、描述输出 schema 与相关错误码。V1.6（2026-10-08）：W2 提前落地访问码门禁；补充 E_ACCESS_CODE_REQUIRED 契约。V1.5（2026-10-07）：错误码表补 E_VALIDATION、清理与 E_RECOGNIZE_INVALID 重复的 E_PARSE；抽出 AppHeader 组件统一双页头部（顶栏高对齐规范 48px、SKU 单元格 32px）。V1.4（2026-10-07）：补充 E_FILE_NOT_FOUND、E_WRITE_FAILED 文件与记录写入错误契约。V1.3（2026-10-06）：合并两条 V1.2 分支——① 契约修订：识别 schema 增加 tagPrice、SKU 价格字段统一为 吊牌价/批发单价（tagPrice/wholesalePrice）、新增 descriptionAi 使描述编辑率可计算、新增 §9 NFR、F-13 入需求表；② 仓库侧拍板：F-13 访问码门禁 + 存储实现约束（原子写/备份 API）。同时技术栈 Nuxt 3 → Nuxt 4.5.2（对齐实际安装与 AGENTS.md）。V1.2：V1.0 基础上补充第 8 节 UI/UX 设计规范 |
 | 设计上下文 | 见仓库根目录 `.impeccable.md`（脚手架时随工程带入）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 范围       | MVP：F-1 ~ F-8（管理端 + 移动端拍照录入）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 不在本期   | 登录/多租户/权限（访问码门禁除外，见 F-13）、订单库存 ERP（指**出入库流水、多仓、库存增减与预警管理**；本期 SKU 的「库存」仅为录入时的一次性静态数字，不参与任何增减逻辑，见 F-4）、模型微调、原生 App                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -74,6 +74,7 @@
 #### 4.2 分支流程
 
 - 多张图：v1 只识别第 1 张并在 UI 标注「多图融合 v2 支持」（F-11）。
+- 平台变体（F-10，可以有）：描述生成完成后可请求抖音/小红书/视频号三平台文案变体，SSE 复用描述生成的断流保护与成本累加口径（流完整走完才落库；断流不落库、不累加成本）。
 - 压缩后体积 > 500KB：仍允许上传，列表中红色标出（不阻断）。
 - confidence ≥ 0.85 的字段：正常样式，不提示。
 
@@ -121,6 +122,7 @@
 | sku            | {color, size, stock≥0, tagPrice>0, wholesalePrice>0}[] | 是   | 矩阵终值；tagPrice=吊牌价（默认预填 AI 建议值）、wholesalePrice=批发单价；库存为录入时的一次性静态数字 | —      | 【事实】          |
 | description    | string                                                 | 是   | 生成+人工编辑终值                                                                                      | —      | 【事实】          |
 | descriptionAi  | string                                                 | 否   | AI 描述首次流式输出的原文留存；描述编辑率口径 = description ≠ descriptionAi 的记录占比                 | —      | 【事实】V1.3 新增 |
+| descriptionVariantsAi | {douyin, xiaohongshu, shipinhao}（结构同 DescribeResult） | 否   | F-10 三平台文案变体留存；各平台 description 为 60~100 字；mock 模式生成三套本地文案 | — | 【事实】V1.9 新增（F-10） |
 | aiCorrect      | Partial<Record<字段名, boolean>>                       | 否   | F-8 评测标记                                                                                           | {}     | 【事实】          |
 | costEstimate   | number                                                 | 否   | 本次识别+生成成本（元）                                                                                | 0      | 【事实】          |
 
@@ -130,7 +132,8 @@
 | -------------- | ---------- | -------------------- | --------------------------- | ----------------------------------------------------------- |
 | /api/upload    | POST       | FormData(image)      | 200 UploadFile              | 415 E_FORMAT / 413 E_SIZE                                   |
 | /api/recognize | POST       | {fileId}             | 200 RecognizeResult + usage | 422 E_RECOGNIZE_INVALID / 502 E_UPSTREAM / 429 E_RATE_LIMIT |
-| /api/describe  | POST       | RecognizeResult 终值 | SSE text/event-stream       | 502 E_UPSTREAM                                              |
+| /api/records/:id/describe          | POST       | 记录 ID（路径参数） | SSE text/event-stream（event: chunk/result/done） | 404 E_RECORD_NOT_FOUND / 503 E_DESCRIPTION_UNAVAILABLE / 422 E_RECOGNIZE_INVALID |
+| /api/records/:id/describe-variants | POST       | 记录 ID（路径参数） | SSE text/event-stream（三平台文案，复用描述事件格式） | 同上（V1.9 新增，F-10）                                                          |
 | /api/records   | GET / POST | — / ProductRecord    | 200 [] / 201                | 400 E_VALIDATION                                            |
 
 环境变量（服务端 only，禁入前端 bundle）：`NUXT_VISION_API_KEY`、`NUXT_VISION_MODEL`、`NUXT_VISION_BASE_URL`。
@@ -151,7 +154,7 @@
 | E_VALIDATION              | 提交的 ProductRecord 未通过 schema 校验                            | 400，不落任何数据                          | 「商品数据不完整，请检查必填项」   |
 | SSE 中断                  | 生成中断线                                                         | 前端保留已出文本                           | 「生成中断，点此继续/重新生成」    |
 | 重复提交                  | 提交按钮连点                                                       | 提交后按钮 loading+禁用                    | 无需提示                           |
-| E_WRITE_FAILED            | 写入 records.json 的临时文件或原子 rename 失败                     | 返回 500，不追加记录；保留前端表单内容     | 「保存失败，请保留表单内容后重试」 |
+| E_WRITE_FAILED            | 写入 records.sqlite 失败                                          | 返回 500，不追加记录；保留前端表单内容     | 「保存失败，请保留表单内容后重试」 |
 
 ### 7. 验收标准
 
@@ -169,6 +172,7 @@
 | F-6    | 提交后 GET /api/records 返回新记录，含三段耗时埋点                                                                                              | 是     |
 | F-8    | 修改任一字段后，记录的 edits[] 含 {field, from, to}                                                                                             | 是     |
 | F-9    | 每次识别后页面显示本次 token 用量与估算成本（元）                                                                                               | 是     |
+| F-10   | 给定一条已提交记录，请求变体生成后返回抖音/小红书/视频号三段文案，各 60~100 字且事实与记录字段一致；SSE 中断时不落库、不累加成本              | 是     |
 | F-7    | 小程序端拍照 → 上传 → 识别走同一组 /api/*，与 Web 端记录互通                                                                                    | 是     |
 | F-13   | 部署态下，无访问码调用任一可写接口（upload/recognize/describe/records POST）返回 401；带正确访问码可正常写入；/api/records（GET）无需访问码可读 | 是     |
 | DS-1   | 给定任一页面，主流程操作（上传→识别→表单→提交）可在单屏内完成，无需纵向滚动超过 1 屏                                                            | 是     |
