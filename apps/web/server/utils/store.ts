@@ -191,10 +191,13 @@ export async function appendRecord(record: ProductRecord): Promise<void> {
 export async function saveGeneratedDescription(
   recordId: string,
   description: string,
+  additionalCostEstimate = 0,
 ): Promise<boolean> {
   const result = getDatabase()
-    .prepare("UPDATE records SET description_ai = ? WHERE id = ?")
-    .run(description, recordId);
+    .prepare(
+      "UPDATE records SET description_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
+    )
+    .run(description, additionalCostEstimate, recordId);
   return result.changes > 0;
 }
 

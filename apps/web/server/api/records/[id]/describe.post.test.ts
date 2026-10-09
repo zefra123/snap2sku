@@ -12,6 +12,7 @@ import {
   appendRecord,
   readRecords,
 } from "../../../utils/store";
+import { createDescriptionGeneration } from "../../../utils/vision";
 import { handleRecordDescription } from "./describe.post";
 
 let temporaryDirectory: string | undefined;
@@ -28,6 +29,7 @@ describe("POST /api/records/:id/describe", () => {
     const directory = createTemporaryDirectory();
     initializeStore(directory);
     const record = createRecord();
+    record.costEstimate = 0.012;
     await appendRecord(record);
     const { event, chunks, response } = createEvent(record.id);
 
@@ -48,7 +50,7 @@ describe("POST /api/records/:id/describe", () => {
     );
     expect(textFragments.join("")).toBe(description);
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.88,"overall":0.88}}',
+      'event: result\ndata: {"confidence":{"description":0.88,"overall":0.88},"descriptionCostEstimate":0,"costEstimate":0.012}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.statusCode).toBe(200);
@@ -56,32 +58,52 @@ describe("POST /api/records/:id/describe", () => {
       "text/event-stream; charset=utf-8",
     );
     expect(response.ended).toBe(true);
+    await expect(readRecords()).resolves.toMatchObject([
+      { id: record.id, costEstimate: 0.012 },
+    ]);
   });
 
   it("限制真模型自评置信度后沿用相同 SSE 事件格式输出并保存", async () => {
     initializeStore(createTemporaryDirectory());
     const record = createRecord();
+    record.costEstimate = 0.012;
     await appendRecord(record);
     const { event, chunks, response } = createEvent(record.id);
     const modelResult: DescribeResult = {
       description: "这是一段通过 schema 校验的模型商品描述。".repeat(3),
       confidence: { description: 1, overall: 1 },
     };
+    const generated = createDescriptionGeneration(
+      modelResult,
+      {
+        usage: {
+          prompt_tokens: 1250,
+          completion_tokens: 250,
+          total_tokens: 1500,
+        },
+      },
+      2,
+      8,
+    );
 
     await handleRecordDescription(event, {
       mock: false,
-      generate: async () => modelResult,
+      generate: async () => generated,
     });
 
     const stream = chunks.join("");
     expect(stream).toContain("event: chunk\ndata:");
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.6,"overall":0.6}}',
+      'event: result\ndata: {"confidence":{"description":0.6,"overall":0.6},"descriptionCostEstimate":0.0045,"costEstimate":0.0165}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);
     await expect(readRecords()).resolves.toMatchObject([
-      { id: record.id, descriptionAi: modelResult.description },
+      {
+        id: record.id,
+        descriptionAi: modelResult.description,
+        costEstimate: 0.0165,
+      },
     ]);
   });
 

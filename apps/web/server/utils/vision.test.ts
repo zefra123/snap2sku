@@ -6,6 +6,7 @@ import {
 } from "@scope/shared/schema";
 import {
   calculateRecognitionCost,
+  createDescriptionGeneration,
   createMockRecognizeResponse,
   getMockRecognizeResult,
   normalizeGeneratedDescription,
@@ -14,6 +15,31 @@ import {
 } from "./vision";
 
 describe("visual adapter mock fixtures", () => {
+  it("parses description model usage and estimates its cost", () => {
+    const generated = createDescriptionGeneration(
+      DescribeResultSchema.parse({
+        description: "这是一段符合 schema 的商品介绍文案。".repeat(4),
+        confidence: { description: 0.8, overall: 0.8 },
+      }),
+      {
+        usage: {
+          prompt_tokens: 1250,
+          completion_tokens: 250,
+          total_tokens: 1500,
+        },
+      },
+      2,
+      8,
+    );
+
+    expect(generated.usage).toEqual({
+      prompt_tokens: 1250,
+      completion_tokens: 250,
+      total_tokens: 1500,
+    });
+    expect(generated.costEstimate).toBe(0.0045);
+  });
+
   it("parses model token usage and estimates input/output cost per million tokens", () => {
     const usage = parseModelUsage({
       usage: {

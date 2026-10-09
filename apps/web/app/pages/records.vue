@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   DescribeResultSchema,
   RECOGNIZE_FIELD_NAMES,
@@ -9,6 +9,7 @@ import {
 } from '@scope/shared/schema'
 
 const records = ref<ProductRecord[]>([])
+const totalCostEstimate = computed(() => records.value.reduce((total, record) => total + record.costEstimate, 0))
 const loading = ref(true)
 const errorMessage = ref('')
 const expandedIds = ref(new Set<string>())
@@ -18,6 +19,10 @@ const descriptionConfidences = ref<Record<string, number>>({})
 const generatingIds = ref(new Set<string>())
 
 onMounted(loadRecords)
+
+function formatCost(value: number): string {
+  return value.toFixed(6)
+}
 
 async function loadRecords(): Promise<void> {
   loading.value = true
@@ -40,6 +45,7 @@ async function generateDescription(record: ProductRecord): Promise<void> {
   generatingIds.value = new Set(generatingIds.value).add(record.id)
   let receivedDone = false
   let pendingConfidence: number | undefined
+  let pendingCostEstimate: number | undefined
 
   try {
     const response = await fetch(`/api/records/${encodeURIComponent(record.id)}/describe`, {
@@ -71,6 +77,9 @@ async function generateDescription(record: ProductRecord): Promise<void> {
         (confidence) => {
           pendingConfidence = confidence
         },
+        (costEstimate) => {
+          pendingCostEstimate = costEstimate
+        },
       )
     }
     buffer += decoder.decode()
@@ -84,6 +93,9 @@ async function generateDescription(record: ProductRecord): Promise<void> {
         (confidence) => {
           pendingConfidence = confidence
         },
+        (costEstimate) => {
+          pendingCostEstimate = costEstimate
+        },
       )
     }
 
@@ -94,6 +106,9 @@ async function generateDescription(record: ProductRecord): Promise<void> {
       }
     } else {
       record.descriptionAi = descriptionOutputs.value[record.id] ?? ''
+      if (pendingCostEstimate !== undefined) {
+        record.costEstimate = pendingCostEstimate
+      }
       if (pendingConfidence !== undefined) {
         descriptionConfidences.value = {
           ...descriptionConfidences.value,
@@ -118,6 +133,7 @@ async function consumeDescriptionEvents(
   recordId: string,
   setDone: (done: boolean) => void,
   setConfidence: (confidence: number) => void,
+  setCostEstimate: (costEstimate: number) => void,
 ): Promise<string> {
   let remainder = source.replaceAll('\r\n', '\n')
   let boundary = remainder.indexOf('\n\n')
@@ -139,9 +155,14 @@ async function consumeDescriptionEvents(
       throw new Error(data)
     } else if (eventName === 'result') {
       const payload: unknown = JSON.parse(data)
-      if (typeof payload === 'object' && payload !== null && 'confidence' in payload) {
-        const parsed = DescribeResultSchema.shape.confidence.safeParse(payload.confidence)
-        if (parsed.success) setConfidence(parsed.data.description)
+      if (typeof payload === 'object' && payload !== null) {
+        if ('confidence' in payload) {
+          const parsed = DescribeResultSchema.shape.confidence.safeParse(payload.confidence)
+          if (parsed.success) setConfidence(parsed.data.description)
+        }
+        if ('costEstimate' in payload && typeof payload.costEstimate === 'number' && Number.isFinite(payload.costEstimate) && payload.costEstimate >= 0) {
+          setCostEstimate(payload.costEstimate)
+        }
       }
     } else if (eventName === 'done' && data === '[DONE]') {
       setDone(true)
@@ -228,7 +249,7 @@ function editValue(value: unknown): string {
 
 <template>
   <div class="records-page">
-    <AppHeader status-text="本地记录" />
+    <AppHeader status-text="本地记录" :cost-text="`累计估算 ¥${formatCost(totalCostEstimate)}`" />
 
     <main class="records-main">
       <div class="records-page-heading">

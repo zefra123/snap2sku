@@ -11,6 +11,7 @@ import {
   buildDescriptionUserPrompt,
 } from "@scope/prompts/describe";
 import { describeProduct } from "../../../utils/vision";
+import type { DescriptionGeneration } from "../../../utils/vision";
 import { getRecordById, saveGeneratedDescription } from "../../../utils/store";
 
 const MOCK_CHUNK_SIZE = 10;
@@ -22,7 +23,7 @@ interface DescribeOptions {
   generate?: (
     source: DescriptionSource,
     event: H3Event,
-  ) => Promise<DescribeResult>;
+  ) => Promise<DescriptionGeneration>;
 }
 
 export default defineEventHandler((event) =>
@@ -47,12 +48,16 @@ export async function handleRecordDescription(
   }
 
   const source = DescriptionSourceSchema.parse(record.recognize);
-  const generatedResult = options.mock
-    ? createMockDescriptionResult(source, {
-        system: DESCRIPTION_SYSTEM_PROMPT,
-        user: buildDescriptionUserPrompt(source),
-      })
+  const generated = options.mock
+    ? {
+        result: createMockDescriptionResult(source, {
+          system: DESCRIPTION_SYSTEM_PROMPT,
+          user: buildDescriptionUserPrompt(source),
+        }),
+        costEstimate: 0,
+      }
     : await (options.generate ?? describeProduct)(source, event);
+  const generatedResult = generated.result;
   const result = options.mock
     ? generatedResult
     : {
@@ -66,10 +71,20 @@ export async function handleRecordDescription(
     event,
     result,
     options.mock ? (options.chunkDelayMs ?? MOCK_CHUNK_DELAY_MS) : 0,
+    {
+      descriptionCostEstimate: generated.costEstimate,
+      costEstimate: record.costEstimate + generated.costEstimate,
+    },
   );
   if (!completed) return;
 
-  if (!(await saveGeneratedDescription(record.id, result.description))) {
+  if (
+    !(await saveGeneratedDescription(
+      record.id,
+      result.description,
+      generated.costEstimate,
+    ))
+  ) {
     throw createError({
       statusCode: 500,
       statusMessage: "E_WRITE_FAILED: 描述保存失败，请稍后重试",
@@ -101,6 +116,10 @@ export async function writeDescriptionStream(
   event: H3Event,
   result: DescribeResult,
   chunkDelayMs = MOCK_CHUNK_DELAY_MS,
+  cost: { descriptionCostEstimate: number; costEstimate: number } = {
+    descriptionCostEstimate: 0,
+    costEstimate: 0,
+  },
 ): Promise<boolean> {
   const response = event.node.res;
   response.statusCode = 200;
@@ -118,7 +137,7 @@ export async function writeDescriptionStream(
 
   if (response.destroyed) return false;
   response.write(
-    `event: result\ndata: ${JSON.stringify({ confidence: result.confidence })}\n\n`,
+    `event: result\ndata: ${JSON.stringify({ confidence: result.confidence, ...cost })}\n\n`,
   );
   response.write("event: done\ndata: [DONE]\n\n");
   response.end();

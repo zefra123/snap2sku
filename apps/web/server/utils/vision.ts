@@ -59,6 +59,30 @@ export function calculateRecognitionCost(
   return Number(cost.toFixed(8));
 }
 
+export interface DescriptionGeneration {
+  result: DescribeResult;
+  usage: ModelUsage;
+  costEstimate: number;
+}
+
+export function createDescriptionGeneration(
+  result: DescribeResult,
+  payload: unknown,
+  inputPricePerMillion: number,
+  outputPricePerMillion: number,
+): DescriptionGeneration {
+  const usage = parseModelUsage(payload);
+  return {
+    result,
+    usage,
+    costEstimate: calculateRecognitionCost(
+      usage,
+      inputPricePerMillion,
+      outputPricePerMillion,
+    ),
+  };
+}
+
 export function createMockRecognizeResponse(
   fixture: MockFixture,
 ): RecognizeResponse {
@@ -264,7 +288,7 @@ export async function recognizeImage(
 export async function describeProduct(
   source: unknown,
   event: H3Event,
-): Promise<DescribeResult> {
+): Promise<DescriptionGeneration> {
   const config = useRuntimeConfig(event);
   if (!config.visionApiKey) {
     failApi(
@@ -275,6 +299,8 @@ export async function describeProduct(
   }
 
   const endpoint = getChatCompletionsEndpoint(config.visionBaseUrl);
+  const inputPricePerMillion = Number(config.visionInputPricePerMillion);
+  const outputPricePerMillion = Number(config.visionOutputPricePerMillion);
   let repairPrompt: string | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const response = await fetchModelResponse(
@@ -308,12 +334,26 @@ export async function describeProduct(
       : { success: false as const };
     if (decoded.success) {
       const result = DescribeResultSchema.safeParse(decoded.data);
-      if (result.success) return result.data;
+      if (result.success) {
+        return createDescriptionGeneration(
+          result.data,
+          payload,
+          inputPricePerMillion,
+          outputPricePerMillion,
+        );
+      }
       if (attempt === 1) {
         const normalized = DescribeResultSchema.safeParse(
           normalizeGeneratedDescription(decoded.data),
         );
-        if (normalized.success) return normalized.data;
+        if (normalized.success) {
+          return createDescriptionGeneration(
+            normalized.data,
+            payload,
+            inputPricePerMillion,
+            outputPricePerMillion,
+          );
+        }
       }
       const description = isRecord(decoded.data)
         ? decoded.data.description
