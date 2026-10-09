@@ -1,4 +1,5 @@
 node_modules/
+apps/mp/dist/
 .nuxt/
 .output/
 .pnpm-store/

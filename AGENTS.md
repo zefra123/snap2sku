@@ -8,20 +8,20 @@
 
 ## 1. 范围约束
 
-- 当前阶段（W1，10/6–10/12）**禁止**：uniapp 小程序端、登录/多租户、ERP 对接、模型微调、原生 App、支付、正式部署。
+- 当前阶段（W4+，2026-10-10 起）**仍禁止**：登录/多租户、ERP 对接、模型微调、原生 App、支付、正式部署。uniapp 小程序端（F-7）已解禁，按任务指令开工。
 - 禁止为"结构更完整"提前建空目录、抽未使用的抽象、写没人调用的代码。
 
 ## 2. 技术栈（锁定，改主版本先问）
 
-| 用途     | 选择                                                                         |
-| -------- | ---------------------------------------------------------------------------- |
-| 包管理   | pnpm 11.19.0 + workspace（禁用 npm/yarn，防第二份 lockfile）                 |
-| Web 框架 | Nuxt 4.5.2 + TypeScript（strict，禁 `any` 兜底）                             |
-| 校验     | zod，schema 单一事实源                                                       |
-| 多模态   | GLM-4V-Flash，走服务端适配器                                                 |
-| 状态     | Nuxt `useState`                                                              |
-| 存储     | 本地 SQLite（`data/records.sqlite`），旧 JSON 由 store 启动迁移并保留 `.bak` |
-| 移动端   | uniapp——W3 前不建任何文件                                                    |
+| 用途     | 选择                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------- |
+| 包管理   | pnpm 11.19.0 + workspace（禁用 npm/yarn，防第二份 lockfile）                                            |
+| Web 框架 | Nuxt 4.5.2 + TypeScript（strict，禁 `any` 兜底）                                                        |
+| 校验     | zod，schema 单一事实源                                                                                  |
+| 多模态   | GLM-4V-Flash，走服务端适配器                                                                            |
+| 状态     | Nuxt `useState`                                                                                         |
+| 存储     | 本地 SQLite（`data/records.sqlite`），旧 JSON 由 store 启动迁移并保留 `.bak`                            |
+| 移动端   | uniapp + Vue3（apps/mp）——F-7 已解禁；复用 @scope/shared 的 zod schema，走同一组 /api/*，不引入独立后端 |
 
 不引入第二套前端框架（React/Next 一律不加）。
 

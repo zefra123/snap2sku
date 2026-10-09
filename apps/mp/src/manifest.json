@@ -1,0 +1,15 @@
+{
+  "name": "snap2sku",
+  "appid": "__UNI__SNAP2SKU",
+  "description": "商品拍照录入助手",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  }
+}

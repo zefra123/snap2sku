@@ -4,6 +4,8 @@ packages:
 
 allowBuilds:
   better-sqlite3: true
+  core-js: true
+  core-js-pure: true
   esbuild: true
 
 # 本机（Windows）绕行：pnpm 默认 isolated 链接方式在本机创建符号链接会失败，

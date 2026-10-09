@@ -1,0 +1,16 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "snap2sku 商品录入",
+        "navigationBarBackgroundColor": "#f4f2ec",
+        "navigationBarTextStyle": "black"
+      }
+    }
+  ],
+  "globalStyle": {
+    "backgroundColor": "#f4f2ec",
+    "navigationBarTextStyle": "black"
+  }
+}
