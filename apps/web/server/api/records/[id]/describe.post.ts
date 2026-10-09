@@ -47,12 +47,21 @@ export async function handleRecordDescription(
   }
 
   const source = DescriptionSourceSchema.parse(record.recognize);
-  const result = options.mock
+  const generatedResult = options.mock
     ? createMockDescriptionResult(source, {
         system: DESCRIPTION_SYSTEM_PROMPT,
         user: buildDescriptionUserPrompt(source),
       })
     : await (options.generate ?? describeProduct)(source, event);
+  const result = options.mock
+    ? generatedResult
+    : {
+        ...generatedResult,
+        confidence: {
+          description: Math.min(generatedResult.confidence.description, 0.6),
+          overall: Math.min(generatedResult.confidence.overall, 0.6),
+        },
+      };
   const completed = await writeDescriptionStream(
     event,
     result,

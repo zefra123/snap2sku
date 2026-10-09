@@ -264,6 +264,7 @@ function editValue(value: unknown): string {
               <div v-if="!generatingIds.has(record.id) && descriptionConfidences[record.id] !== undefined" class="description-confidence">
                 <span>AI 描述置信度</span>
                 <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount(descriptionConfidences[record.id]!) < 3 }" :aria-label="`置信度 ${confidenceTickCount(descriptionConfidences[record.id]!)} / 5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount(descriptionConfidences[record.id]!) }" /></span>
+                <small>模型自评</small>
                 <b>{{ Math.round(descriptionConfidences[record.id]! * 100) }}%</b>
               </div>
               <span v-if="descriptionErrors[record.id]" class="description-error" role="alert">{{ descriptionErrors[record.id] }}</span>
@@ -319,6 +320,7 @@ function editValue(value: unknown): string {
 .typing-caret { display: inline-block; width: 1px; height: 1em; margin-left: 2px; background: var(--c-primary); vertical-align: text-bottom; animation: typing-caret-blink 1s steps(2, start) infinite; }
 .description-error { color: var(--c-error); font-size: var(--font-xs); }
 .description-confidence { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--c-ink-2); font-size: var(--font-xs); }
+.description-confidence small { font-size: var(--font-xs); }
 .description-confidence b { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
 .confidence-scale { display: inline-grid; grid-template-columns: repeat(5, 5px); gap: 2px; vertical-align: middle; }
 .confidence-scale i { width: 5px; height: 7px; border: 1px solid var(--c-primary); background: transparent; }
