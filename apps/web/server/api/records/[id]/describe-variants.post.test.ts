@@ -32,6 +32,9 @@ describe("POST /api/records/:id/describe-variants", () => {
     expect(stream).toContain('"platform":"douyin"');
     expect(stream).toContain('"platform":"xiaohongshu"');
     expect(stream).toContain('"platform":"shipinhao"');
+    expect(stream).toContain(
+      '"confidence":{"description":0.88,"overall":0.88}',
+    );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);
     await expect(readRecords()).resolves.toMatchObject([
@@ -39,6 +42,49 @@ describe("POST /api/records/:id/describe-variants", () => {
         costEstimate: 0.012,
         descriptionVariantsAi: { douyin: {}, xiaohongshu: {}, shipinhao: {} },
       },
+    ]);
+  });
+
+  it("clamps model confidence in all platform result events to 0.6", async () => {
+    initializeStore(createDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const { event, chunks } = createEvent(record.id);
+    const mockVariants = createMockDescriptionVariants(record.recognize);
+    await handleDescriptionVariants(event, {
+      mock: false,
+      generate: async () => ({
+        result: {
+          douyin: {
+            ...mockVariants.douyin,
+            confidence: { description: 1, overall: 0.9 },
+          },
+          xiaohongshu: {
+            ...mockVariants.xiaohongshu,
+            confidence: { description: 0.7, overall: 1 },
+          },
+          shipinhao: {
+            ...mockVariants.shipinhao,
+            confidence: { description: 0.5, overall: 0.8 },
+          },
+        },
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        costEstimate: 0.004,
+      }),
+    });
+
+    const resultEvents = Array.from(
+      chunks.join("").matchAll(/event: result\ndata: (.+)\n\n/g),
+      (match) =>
+        JSON.parse(match[1]!) as {
+          confidence: { description: number; overall: number };
+        },
+    );
+    expect(resultEvents).toHaveLength(3);
+    expect(resultEvents.map(({ confidence }) => confidence)).toEqual([
+      { description: 0.6, overall: 0.6 },
+      { description: 0.6, overall: 0.6 },
+      { description: 0.5, overall: 0.6 },
     ]);
   });
 

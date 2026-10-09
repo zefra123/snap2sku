@@ -3,6 +3,7 @@ import { createError, defineEventHandler } from "h3";
 import {
   DescriptionSourceSchema,
   type DescriptionPlatform,
+  type DescriptionVariants,
 } from "@scope/shared/schema";
 import {
   createMockDescriptionVariants,
@@ -54,7 +55,13 @@ export async function handleDescriptionVariants(
   const generated = options.mock
     ? { result: createMockDescriptionVariants(source), costEstimate: 0 }
     : await (options.generate ?? describeProductVariants)(source, event);
-  const variants = generated.result;
+  const variants: DescriptionVariants = options.mock
+    ? generated.result
+    : {
+        douyin: clampConfidence(generated.result.douyin),
+        xiaohongshu: clampConfidence(generated.result.xiaohongshu),
+        shipinhao: clampConfidence(generated.result.shipinhao),
+      };
   const response = event.node.res;
   response.statusCode = 200;
   response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -103,6 +110,18 @@ function splitText(value: string, size: number): string[] {
     { length: Math.ceil(characters.length / size) },
     (_, index) => characters.slice(index * size, (index + 1) * size).join(""),
   );
+}
+
+function clampConfidence(
+  result: DescriptionVariants[DescriptionPlatform],
+): DescriptionVariants[DescriptionPlatform] {
+  return {
+    ...result,
+    confidence: {
+      description: Math.min(result.confidence.description, 0.6),
+      overall: Math.min(result.confidence.overall, 0.6),
+    },
+  };
 }
 
 function delay(milliseconds: number): Promise<void> {

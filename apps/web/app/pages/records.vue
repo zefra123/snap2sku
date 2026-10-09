@@ -4,6 +4,7 @@ import {
   DescribeResultSchema,
   RECOGNIZE_FIELD_NAMES,
   RecognizeResultSchema,
+  type DescribeResult,
   type ProductRecord,
   type RecognizeResult,
 } from '@scope/shared/schema'
@@ -136,6 +137,7 @@ async function generateVariants(record: ProductRecord): Promise<void> {
   generatingIds.value = new Set(generatingIds.value).add(record.id)
   let receivedDone = false
   let pendingCostEstimate: number | undefined
+  const confidences: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', DescribeResult['confidence']>> = {}
   try {
     const response = await fetch(`/api/records/${encodeURIComponent(record.id)}/describe-variants`, { method: 'POST' })
     if (!response.ok) { descriptionErrors.value = { ...descriptionErrors.value, [record.id]: await responseErrorMessage(response) }; return }
@@ -147,16 +149,16 @@ async function generateVariants(record: ProductRecord): Promise<void> {
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      buffer = consumeVariantEvents(buffer, record.id, outputs, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
+      buffer = consumeVariantEvents(buffer, record.id, outputs, confidences, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
     }
     buffer += decoder.decode()
-    if (buffer.trim()) consumeVariantEvents(`${buffer}\n\n`, record.id, outputs, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
+    if (buffer.trim()) consumeVariantEvents(`${buffer}\n\n`, record.id, outputs, confidences, (doneEvent) => { receivedDone = doneEvent }, (cost) => { pendingCostEstimate = cost })
     if (!receivedDone) descriptionErrors.value = { ...descriptionErrors.value, [record.id]: '描述未保存，请重新生成' }
     else {
       record.descriptionVariantsAi = {
-        douyin: { description: outputs.douyin ?? '', confidence: { description: 0.88, overall: 0.88 } },
-        xiaohongshu: { description: outputs.xiaohongshu ?? '', confidence: { description: 0.88, overall: 0.88 } },
-        shipinhao: { description: outputs.shipinhao ?? '', confidence: { description: 0.88, overall: 0.88 } },
+        douyin: { description: outputs.douyin ?? '', confidence: confidences.douyin! },
+        xiaohongshu: { description: outputs.xiaohongshu ?? '', confidence: confidences.xiaohongshu! },
+        shipinhao: { description: outputs.shipinhao ?? '', confidence: confidences.shipinhao! },
       }
       if (pendingCostEstimate !== undefined) record.costEstimate = pendingCostEstimate
     }
@@ -167,7 +169,7 @@ async function generateVariants(record: ProductRecord): Promise<void> {
   }
 }
 
-function consumeVariantEvents(source: string, recordId: string, outputs: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', string>>, setDone: (done: boolean) => void, setCostEstimate: (cost: number) => void): string {
+function consumeVariantEvents(source: string, recordId: string, outputs: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', string>>, confidences: Partial<Record<'douyin' | 'xiaohongshu' | 'shipinhao', DescribeResult['confidence']>>, setDone: (done: boolean) => void, setCostEstimate: (cost: number) => void): string {
   let remainder = source.replaceAll('\r\n', '\n')
   let boundary = remainder.indexOf('\n\n')
   while (boundary !== -1) {
@@ -184,7 +186,13 @@ function consumeVariantEvents(source: string, recordId: string, outputs: Partial
     } else if (eventName === 'error') throw new Error(data)
     else if (eventName === 'result') {
       const payload: unknown = JSON.parse(data)
-      if (typeof payload === 'object' && payload !== null && 'costEstimate' in payload && typeof payload.costEstimate === 'number') setCostEstimate(payload.costEstimate)
+      if (typeof payload === 'object' && payload !== null) {
+        if ('platform' in payload && typeof payload.platform === 'string' && ['douyin', 'xiaohongshu', 'shipinhao'].includes(payload.platform) && 'confidence' in payload) {
+          const parsed = DescribeResultSchema.shape.confidence.safeParse(payload.confidence)
+          if (parsed.success) confidences[payload.platform as 'douyin' | 'xiaohongshu' | 'shipinhao'] = parsed.data
+        }
+        if ('costEstimate' in payload && typeof payload.costEstimate === 'number' && Number.isFinite(payload.costEstimate) && payload.costEstimate >= 0) setCostEstimate(payload.costEstimate)
+      }
     } else if (eventName === 'done' && data === '[DONE]') setDone(true)
     boundary = remainder.indexOf('\n\n')
   }
