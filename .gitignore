@@ -1,5 +1,6 @@
 node_modules/
 apps/mp/dist/
+apps/mp/src/styles/tokens.wxss
 .nuxt/
 .output/
 .pnpm-store/

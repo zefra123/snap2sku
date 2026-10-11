@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin"
+    "gen:tokens": "node scripts/gen-mini-tokens.mjs",
+    "dev:mp-weixin": "node scripts/gen-mini-tokens.mjs && uni -p mp-weixin",
+    "build:mp-weixin": "node scripts/gen-mini-tokens.mjs && uni build -p mp-weixin"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5020620260917001",

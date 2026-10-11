@@ -7,7 +7,7 @@ onLaunch(() => {
 </script>
 
 <style>
-@import "../../web/app/assets/css/tokens.css";
+@import "./styles/tokens.wxss";
 
 page {
   background: var(--c-bg);
