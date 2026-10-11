@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" width="800" height="480" role="img">
+  <title>拍照识别商品</title>
+  <desc>取景框内是一件待识别的服装，四周浮动颜色、尺码、价格标签</desc>
+
+  <rect width="800" height="480" fill="#F7F4EC"/>
+  <circle cx="118" cy="88" r="72" fill="#EFE9DB"/>
+  <circle cx="706" cy="404" r="96" fill="#EFE9DB"/>
+  <circle cx="672" cy="96" r="34" fill="#EFE9DB"/>
+
+  <rect x="270" y="118" width="260" height="244" rx="26" fill="#FDFBF6" stroke="#E3DDD0"/>
+
+  <path d="M292 152v-12a22 22 0 0 1 22-22h12" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M508 152v-12a22 22 0 0 0-22-22h-12" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M292 328v12a22 22 0 0 0 22 22h12" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M508 328v12a22 22 0 0 1-22 22h-12" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+
+  <path d="M400 176l-2-16a11 11 0 1 1 9 0" fill="none" stroke="#36508C" stroke-width="4" stroke-linecap="round"/>
+  <path d="M400 176l-58 28h116z" fill="none" stroke="#36508C" stroke-width="4" stroke-linejoin="round"/>
+
+  <path d="M352 217 L381 200 L400 214 L419 200 L448 217 L438 253 L424 246 L424 349 L376 349 L376 246 L362 253 Z"
+        fill="#DFE8F6" stroke="#36508C" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M381 200 L400 214 L419 200" fill="none" stroke="#36508C" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="400" cy="288" r="11" fill="#B26A3A"/>
+
+  <path d="M286 240h228" stroke="#B26A3A" stroke-width="4" stroke-linecap="round"/>
+
+  <g>
+    <rect x="556" y="150" width="128" height="46" rx="23" fill="#FDFBF6" stroke="#E3DDD0"/>
+    <circle cx="580" cy="173" r="9" fill="#36508C"/>
+    <rect x="600" y="168" width="62" height="10" rx="5" fill="#D5DFF0"/>
+  </g>
+  <g>
+    <rect x="556" y="222" width="128" height="46" rx="23" fill="#FDFBF6" stroke="#E3DDD0"/>
+    <circle cx="580" cy="245" r="9" fill="#B26A3A"/>
+    <rect x="600" y="240" width="48" height="10" rx="5" fill="#EFE1D3"/>
+  </g>
+  <g>
+    <rect x="116" y="248" width="128" height="46" rx="23" fill="#FDFBF6" stroke="#E3DDD0"/>
+    <circle cx="140" cy="271" r="9" fill="#3F7F5A"/>
+    <rect x="160" y="266" width="56" height="10" rx="5" fill="#D9E6DC"/>
+  </g>
+
+  <path d="M182 138l7 18 18 7-18 7-7 18-7-18-18-7 18-7z" fill="#B26A3C"/>
+  <path d="M634 330l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#36508C" opacity="0.85"/>
+
+  <path d="M540 173h16" stroke="#E3DDD0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M540 245h16" stroke="#E3DDD0" stroke-width="3" stroke-linecap="round"/>
+  <path d="M260 271h10" stroke="#E3DDD0" stroke-width="3" stroke-linecap="round"/>
+</svg>

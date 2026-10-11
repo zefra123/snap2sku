@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" width="320" height="240" role="img">
+  <title>暂无记录</title>
+  <desc>一个空衣架和一张虚线吊牌，表示还没有任何商品记录</desc>
+
+  <ellipse cx="160" cy="200" rx="88" ry="10" fill="#EDE7D9"/>
+  <circle cx="72" cy="70" r="30" fill="#F1EBDE"/>
+  <circle cx="256" cy="176" r="26" fill="#F1EBDE"/>
+
+  <path d="M160 84l-2-13a9 9 0 1 1 7 0" fill="none" stroke="#B9B2A2" stroke-width="4" stroke-linecap="round"/>
+  <path d="M160 84l-54 26h108z" fill="none" stroke="#B9B2A2" stroke-width="4" stroke-linejoin="round"/>
+
+  <rect x="196" y="116" width="78" height="48" rx="12" fill="#FDFBF6" stroke="#CFC7B6" stroke-width="3" stroke-dasharray="7 7"/>
+  <circle cx="218" cy="140" r="6" fill="#CFC7B6"/>
+  <rect x="232" y="132" width="30" height="8" rx="4" fill="#E3DDD0"/>
+  <rect x="232" y="148" width="20" height="8" rx="4" fill="#E3DDD0"/>
+  <path d="M196 140h-16" stroke="#CFC7B6" stroke-width="3" stroke-dasharray="5 6" stroke-linecap="round"/>
+</svg>

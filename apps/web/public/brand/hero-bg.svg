@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 260" fill="none" aria-label="hero 背景装饰">
+  <defs>
+    <radialGradient id="hb-indigo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#36508C" stop-opacity=".12"/>
+      <stop offset="100%" stop-color="#36508C" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="hb-ochre" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#B26A3A" stop-opacity=".13"/>
+      <stop offset="100%" stop-color="#B26A3A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 品牌色柔光 -->
+  <ellipse cx="1030" cy="60" rx="340" ry="200" fill="url(#hb-indigo)"/>
+  <ellipse cx="1160" cy="230" rx="330" ry="210" fill="url(#hb-ochre)"/>
+
+  <!-- 右侧编辑插画：取景框 + 衣架 + 扫描线 -->
+  <g opacity=".6">
+    <rect x="846" y="34" width="172" height="172" rx="16" stroke="#36508C" stroke-opacity=".4" stroke-width="2"/>
+    <path d="M862 62v-10a8 8 0 0 1 8-8h10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M1002 62v-10a8 8 0 0 0-8-8h-10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M862 178v10a8 8 0 0 0 8 8h10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M1002 178v10a8 8 0 0 1-8 8h-10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M932 92l-2-12a8.5 8.5 0 1 1 7 0" stroke="#36508C" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M932 92l-46 23h92z" stroke="#36508C" stroke-width="3.2" stroke-linejoin="round"/>
+    <path d="M890 121 L911 109 L932 120 L953 109 L974 121 L967 144 L956 139 L956 182 L914 182 L914 139 L903 144 Z" fill="#DFE8F6" fill-opacity=".75" stroke="#36508C" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M858 150h148" stroke="#B26A3A" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+  </g>
+
+  <!-- 吊牌 -->
+  <g opacity=".6">
+    <rect x="1052" y="100" width="88" height="116" rx="12" fill="#FDFBF6" stroke="#E3DDD0"/>
+    <circle cx="1096" cy="116" r="4.6" stroke="#36508C" stroke-width="2.4"/>
+    <rect x="1070" y="132" width="54" height="8" rx="4" fill="#D5DFF0"/>
+    <rect x="1070" y="150" width="38" height="8" rx="4" fill="#EFE1D3"/>
+    <rect x="1070" y="168" width="46" height="8" rx="4" fill="#E3DDD0"/>
+  </g>
+
+  <!-- 条码 -->
+  <g opacity=".45" stroke="#332F28" stroke-opacity=".38">
+    <path d="M760 236v-44" stroke-width="3"/>
+    <path d="M770 236v-44" stroke-width="1.5"/>
+    <path d="M778 236v-44" stroke-width="4"/>
+    <path d="M790 236v-44" stroke-width="1.5"/>
+    <path d="M797 236v-44" stroke-width="3"/>
+    <path d="M808 236v-44" stroke-width="1.5"/>
+    <path d="M816 236v-44" stroke-width="4"/>
+  </g>
+
+  <!-- 星芒点缀 -->
+  <path d="M1030 44l6 16 16 6-16 6-6 16-6-16-16-6 16-6z" fill="#B26A3A" opacity=".7"/>
+  <path d="M700 54l4 11 11 4-11 4-4 11-4-11-11-4 11-4z" fill="#36508C" opacity=".45"/>
+</svg>

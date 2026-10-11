@@ -241,7 +241,7 @@ function showError(messageText: string): void {
 <template>
   <view class="page">
     <view class="card access-card">
-      <text class="title">访问码</text>
+      <text class="title"><image class="title-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />访问码</text>
       <view class="access-row">
         <input v-model="accessCode" class="input" password placeholder="服务启用门禁时填写" />
         <button class="button secondary" @tap="saveAccessCode">保存</button>
@@ -249,28 +249,32 @@ function showError(messageText: string): void {
       <text class="hint">访问码仅保存在本机；所有写请求都会发送 x-access-code。</text>
     </view>
 
-    <view class="card">
-      <text class="title">商品照片</text>
+    <view class="hero-card">
+      <image class="hero-background" src="/static/brand/hero-bg.svg" mode="widthFix" />
+      <view class="hero-content">
+      <text class="title"><image class="title-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" />商品照片</text>
       <image v-if="photoPath" class="preview" :src="photoPath" mode="aspectFit" />
       <button class="button primary" :disabled="busy" @tap="chooseAndRecognize">
-        {{ busy ? '处理中…' : '拍照或从相册选择' }}
+        <image v-if="busy" class="loading-icon" src="/static/brand/loading-scan.svg" mode="aspectFit" />
+        <image v-else class="button-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" />
+        {{ busy ? '识别中…' : '拍照或从相册选择' }}
       </button>
       <text class="hint">照片会按最长边 1024px、质量 85 压缩后上传。</text>
+      </view>
     </view>
 
     <view v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</view>
     <view v-if="message" class="notice success" role="status">{{ message }}</view>
 
     <view v-if="recognized" class="card">
-      <text class="title">识别结果</text>
-      <view class="field-row"><text class="label">商品名称</text><input v-model="recognized.item_name" class="input" /></view>
-      <view class="field-row"><text class="label">品类</text><text>{{ recognized.category }}</text></view>
-      <view class="field-row"><text class="label">颜色</text><text>{{ recognized.colors.map((color) => color.name).join('、') }}</text></view>
-      <view class="field-row"><text class="label">风格</text><text>{{ recognized.style }}</text></view>
-      <view class="field-row"><text class="label">季节</text><text>{{ recognized.seasons.join('、') }}</text></view>
-      <view class="field-row"><text class="label">适用人群</text><text>{{ recognized.audience }}</text></view>
-      <view class="field-row"><text class="label">面料</text><text>{{ recognized.fabric || '未识别' }}</text></view>
-      <view class="field-row"><text class="label">SKU 尺码</text>
+      <text class="title"><image class="title-icon" src="/static/brand/icons/scan.svg" mode="aspectFit" />识别结果</text>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />商品名称</text><input v-model="recognized.item_name" class="input" /></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />品类 / 颜色</text><text>{{ recognized.category }} · {{ recognized.colors.map((color) => color.name).join('、') }}</text></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />风格</text><text>{{ recognized.style }}</text></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/album.svg" mode="aspectFit" />季节</text><text>{{ recognized.seasons.join('、') }}</text></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />适用人群</text><text>{{ recognized.audience }}</text></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />面料</text><text>{{ recognized.fabric || '未识别' }}</text></view>
+      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/size.svg" mode="aspectFit" />SKU 尺码</text>
         <picker :range="SIZES_TOP" @change="size = SIZES_TOP[Number($event.detail.value)] ?? size">
           <view class="picker-value">{{ size }}　⌄</view>
         </picker>
@@ -290,7 +294,14 @@ function showError(messageText: string): void {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
 .card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1rpx solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
-.title { font-size: var(--font-lg); font-weight: 600; }
+.hero-card { position: relative; overflow: hidden; border: 1rpx solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
+.hero-background { position: absolute; top: 0; right: 0; width: 100%; z-index: 0; }
+.hero-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.title { display: flex; align-items: center; gap: 12rpx; font-size: var(--font-lg); font-weight: 600; }
+.title-icon { width: 40rpx; height: 40rpx; }
+.field-icon { width: 30rpx; height: 30rpx; margin-right: 8rpx; vertical-align: middle; }
+.button-icon { width: 36rpx; height: 36rpx; margin-right: 10rpx; vertical-align: middle; }
+.loading-icon { width: 120rpx; height: 120rpx; margin-right: 8rpx; vertical-align: middle; }
 .access-row { display: flex; gap: 14rpx; }
 .input { box-sizing: border-box; min-width: 0; flex: 1; padding: 18rpx; border: 1rpx solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-ink); }
 .numeric { max-width: 220rpx; text-align: right; }
@@ -303,7 +314,7 @@ function showError(messageText: string): void {
 .error { border-color: var(--c-error); color: var(--c-error); }
 .success { border-color: var(--c-success); color: var(--c-success); }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; min-height: 68rpx; }
-.label { width: 150rpx; flex: 0 0 auto; color: var(--c-ink-2); font-size: var(--font-sm); }
+.label { display: flex; align-items: center; width: 150rpx; flex: 0 0 auto; color: var(--c-ink-2); font-size: var(--font-sm); }
 .field-row > text:last-child { text-align: right; }
 .picker-value { min-width: 140rpx; padding: 12rpx; border: 1rpx solid var(--c-border); border-radius: var(--radius); text-align: center; }
 .footer { padding: 8rpx 0 28rpx; overflow-wrap: anywhere; }

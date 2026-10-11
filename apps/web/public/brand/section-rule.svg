@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 24" fill="none" aria-label="分隔纹样">
+  <path d="M0 12h540" stroke="#36508C" stroke-opacity=".22" stroke-width="1"/>
+  <path d="M700 12h540" stroke="#36508C" stroke-opacity=".22" stroke-width="1"/>
+  <circle cx="590" cy="12" r="2.4" fill="#36508C" fill-opacity=".45"/>
+  <path d="M620 4l8 8-8 8-8-8z" fill="#B26A3A" fill-opacity=".7"/>
+  <circle cx="650" cy="12" r="2.4" fill="#36508C" fill-opacity=".45"/>
+</svg>

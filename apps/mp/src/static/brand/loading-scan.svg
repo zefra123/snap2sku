@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img">
+  <title>正在识别</title>
+  <desc>取景框内一件商品，扫描线上下移动，表示 AI 正在识别</desc>
+  <style>
+    .scan { animation: scanMove 1.8s ease-in-out infinite alternate; }
+    @media (prefers-reduced-motion: reduce) { .scan { animation: none; } }
+    @keyframes scanMove { from { transform: translateY(-36px); } to { transform: translateY(36px); } }
+  </style>
+
+  <rect x="30" y="30" width="180" height="180" rx="22" fill="#FDFBF6" stroke="#E3DDD0"/>
+  <path d="M48 64V50a8 8 0 0 1 8-8h14" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M192 64V50a8 8 0 0 0-8-8h-14" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M48 176v14a8 8 0 0 0 8 8h14" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+  <path d="M192 176v14a8 8 0 0 1-8 8h-14" fill="none" stroke="#36508C" stroke-width="5" stroke-linecap="round"/>
+
+  <path d="M96 104 L110 98 L120 106 L130 98 L144 104 L150 124 L136 118 L136 150 L104 150 L104 118 L90 124 Z"
+        fill="#DFE8F6" stroke="#36508C" stroke-width="3" stroke-linejoin="round"/>
+
+  <g class="scan">
+    <path d="M40 120h160" stroke="#B26A3C" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+  </g>
+</svg>

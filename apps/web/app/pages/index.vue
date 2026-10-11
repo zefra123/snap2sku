@@ -507,7 +507,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
       </section>
 
       <div v-if="errorMessage" class="notice notice--error" role="alert"><span>!</span>{{ errorMessage }}</div>
-      <div v-if="statusMessage" class="notice notice--success" role="status"><span>✓</span>{{ statusMessage }}</div>
+      <div v-if="statusMessage" class="notice notice--success" role="status"><img class="status-icon" src="/brand/icons/check.svg" alt="" aria-hidden="true">{{ statusMessage }}</div>
       <div v-if="recognitionUsage" class="usage-summary" role="status">
         <strong>本次识别用量</strong>
         <span class="usage-value">{{ recognitionUsage.prompt_tokens }} 输入 / {{ recognitionUsage.completion_tokens }} 输出 / {{ recognitionUsage.total_tokens }} tokens</span>
@@ -518,7 +518,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
         <aside class="upload-column">
           <section class="panel upload-panel">
             <div class="panel-heading">
-              <div><span class="section-index">01</span><h2>商品照片</h2></div>
+              <div><span class="section-index">01</span><h2><img src="/brand/icons/camera.svg" alt="" aria-hidden="true">商品照片</h2></div>
               <span class="small-count">{{ imageQueue.length }} / 10</span>
             </div>
 
@@ -530,7 +530,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
               @drop.prevent="dragActive = false; selectFiles($event.dataTransfer?.files ?? [])"
             >
               <template v-if="!imageQueue.length">
-                <div class="upload-illustration"><span class="hanger-line" /><span class="hanger-hook">⌁</span><span class="hanger-shape">⌑</span><i>+</i></div>
+                <img class="drop-illustration" src="/brand/brand-hero.svg" alt="" aria-hidden="true">
                 <strong>把到货的照片拖进来</strong>
                 <span class="drop-hint">或点击下方按钮选择图片</span>
                 <span class="file-rules">JPG / PNG / WebP <b>·</b> 单张 ≤ 5 MB</span>
@@ -559,7 +559,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
             </div>
 
             <input ref="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" multiple @change="handleFileChange">
-            <button class="button button--outline choose-button" type="button" @click="fileInput?.click()">选择商品图片 <span>＋</span></button>
+            <button class="button button--outline choose-button" type="button" @click="fileInput?.click()"><img class="button-icon" src="/brand/icons/camera.svg" alt="" aria-hidden="true">选择商品图片 <span>＋</span></button>
 
             <div v-if="imageQueue.length" class="compression-list">
               <div v-for="image in imageQueue" :key="image.key" class="compression-row">
@@ -582,7 +582,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
         <section class="details-column">
           <section class="panel recognize-panel">
             <div class="panel-heading">
-              <div><span class="section-index">02</span><h2>AI 商品识别</h2></div>
+              <div><span class="section-index">02</span><h2><img src="/brand/icons/scan.svg" alt="" aria-hidden="true">AI 商品识别</h2></div>
               <span class="ai-label"><i /> AI ASSIST</span>
             </div>
             <div class="recognize-toolbar">
@@ -595,7 +595,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                 </select>
               </label>
               <button class="button button--primary recognize-button" type="button" :disabled="busy || saving" @click="recognize">
-                <span v-if="busy" class="spinner" />{{ busy ? '请稍候…' : result ? '重新识别' : '识别商品' }} <span v-if="!busy">↗</span>
+                <img v-if="busy" class="btn-scan-icon" src="/brand/loading-scan.svg" alt="" aria-hidden="true">{{ busy ? '请稍候…' : result ? '重新识别' : '识别商品' }} <span v-if="!busy">↗</span>
               </button>
             </div>
             <div class="legend-row"><span class="legend-item"><i class="legend-dash" /> AI 建议</span><span class="legend-item"><i class="legend-solid" /> 已确认 / 已修改</span><span class="legend-confidence"><span class="confidence-scale confidence-scale--low" aria-hidden="true"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= 2 }" /></span>低置信需核对</span></div>
@@ -603,7 +603,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
           <section v-if="result" class="panel form-panel">
             <div class="form-title-row">
-              <div><span class="section-index">03</span><h2>商品资料</h2><span class="result-chip">{{ RECOGNIZE_FIELD_NAMES.length }} 项识别字段</span></div>
+              <div><span class="section-index">03</span><h2><img src="/brand/icons/palette.svg" alt="" aria-hidden="true">商品资料</h2><span class="result-chip">{{ RECOGNIZE_FIELD_NAMES.length }} 项识别字段</span></div>
               <span class="confidence-overall"><span>整体置信度</span><b>{{ Math.round(result.confidence.overall * 100) }}%</b></span>
             </div>
 
@@ -655,7 +655,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
           <section v-if="result" class="panel sku-panel">
             <div class="panel-heading sku-heading">
-              <div><span class="section-index">04</span><h2>SKU 规格与价格</h2></div>
+              <div><span class="section-index">04</span><h2><img src="/brand/icons/size.svg" alt="" aria-hidden="true">SKU 规格与价格</h2></div>
               <span class="sku-total"><b>{{ skuCells.length }}</b> 个规格组合</span>
             </div>
             <div class="sku-tools">
@@ -671,7 +671,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
           </section>
 
           <section v-if="result" class="panel description-panel">
-            <div class="panel-heading"><div><span class="section-index">05</span><h2>商品描述</h2></div><span class="manual-label">W1 · 手动填写</span></div>
+            <div class="panel-heading"><div><span class="section-index">05</span><h2><img src="/brand/icons/tag.svg" alt="" aria-hidden="true">商品描述</h2></div><span class="manual-label">W1 · 手动填写</span></div>
             <textarea v-model="description" rows="3" placeholder="补充面料、版型和穿着场景等商品描述…" aria-label="商品描述" />
             <div class="description-note">流式 AI 文案将在 W2 接入；当前内容会随记录保存。</div>
           </section>
@@ -683,9 +683,10 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
         </section>
       </div>
 
+      <img class="section-rule" src="/brand/section-rule.svg" alt="" aria-hidden="true">
       <section class="records-section">
-        <div class="records-heading"><div><span class="section-index">06</span><h2>最近录入</h2><span class="records-count">{{ recordList.length }} 条</span></div><span class="records-caption">本机保存 · 仅供当前演示环境使用</span></div>
-        <div v-if="!recordList.length" class="records-empty"><span class="empty-icon">▤</span><span>保存后的商品会显示在这里</span></div>
+        <div class="records-heading"><div><span class="section-index">06</span><h2><img src="/brand/icons/album.svg" alt="" aria-hidden="true">最近录入</h2><span class="records-count">{{ recordList.length }} 条</span></div><span class="records-caption">本机保存 · 仅供当前演示环境使用</span></div>
+        <div v-if="!recordList.length" class="records-empty"><img class="empty-illustration" src="/brand/empty-records.svg" alt="" aria-hidden="true"><span>保存后的商品会显示在这里</span></div>
         <div v-else class="records-list"><article v-for="record in recordList.slice(0, 5)" :key="record.id" class="record-row"><span class="record-sequence">{{ recordList.indexOf(record) + 1 < 10 ? `0${recordList.indexOf(record) + 1}` : recordList.indexOf(record) + 1 }}</span><div class="record-name"><strong>{{ record.recognize.item_name }}</strong><span>{{ record.recognize.category }} · {{ record.recognize.colors.map((color) => color.name).join(' / ') }}</span></div><span class="record-sku">{{ record.sku.length }} SKU</span><span class="record-time">{{ new Date(record.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }}</span></article></div>
       </section>
 
@@ -696,9 +697,10 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
 <style>
 :root { font-synthesis: none; }
+body { background-color: var(--c-bg); background-image: url(/brand/page-texture.svg); background-repeat: repeat; background-size: 300px 300px; }
 .app-shell { min-height: 100vh; }
 .workspace { width: min(1240px, calc(100% - 48px)); margin: 0 auto; }
-.page-heading { display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; }
+.page-heading { display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; background-image: url(/brand/hero-bg.svg); background-repeat: no-repeat; background-position: right center; background-size: cover; }
 .eyebrow { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; letter-spacing: .14em; }
 .eyebrow span { padding: 0 4px; color: var(--c-accent); }
 h1,h2,p { margin: 0; }
@@ -723,17 +725,15 @@ h1 em { color: var(--c-accent); font-style: normal; }
 .panel-heading { justify-content: space-between; margin-bottom: 15px; }
 .panel-heading > div { gap: 9px; }
 .section-index { color: var(--c-accent); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; letter-spacing: .04em; }
-h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight: 600; letter-spacing: -.01em; }
+h2 { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-heading); font-size: var(--font-base); font-weight: 600; letter-spacing: -.01em; }
+h2 img { width: 20px; height: 20px; }
+.status-icon { width: 16px; height: 16px; }
 .small-count { color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
 .dropzone { min-height: 250px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; overflow: hidden; border: 1px dashed color-mix(in oklch, var(--c-primary) 45%, var(--c-border)); background: color-mix(in oklch, var(--c-primary) 2%, var(--c-surface)); text-align: center; transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 .dropzone--active { border-style: solid; background: color-mix(in oklch, var(--c-primary) 6%, var(--c-surface)); }
 .dropzone--has-images { padding: 9px; }
 .example-button { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-primary); font-size: var(--font-xs); cursor: pointer; }
-.upload-illustration { position: relative; width: 88px; height: 81px; margin-bottom: 7px; color: var(--c-primary); }
-.hanger-line { position: absolute; top: 33px; left: 7px; width: 74px; height: 1px; background: color-mix(in oklch, var(--c-primary) 28%, transparent); transform: rotate(-3deg); }
-.hanger-hook { position: absolute; top: 0; left: 39px; color: var(--c-accent); font-family: var(--font-heading); font-size: var(--font-xl); transform: rotate(90deg); }
-.hanger-shape { position: absolute; top: 18px; left: 27px; width: 36px; height: 53px; display: grid; place-items: center; border: 1px solid var(--c-primary); background: var(--c-surface); color: var(--c-accent); font-family: var(--font-heading); font-size: var(--font-base); transform: rotate(-4deg); }
-.upload-illustration i { position: absolute; right: 0; bottom: 2px; width: 19px; height: 19px; display: grid; place-items: center; border-radius: var(--radius-full); background: var(--c-accent); color: var(--c-surface); font-size: var(--font-sm); font-style: normal; }
+.drop-illustration { width: 200px; max-width: 60%; height: auto; display: block; margin: 0 auto 12px; }
 .dropzone > strong { font-family: var(--font-heading); font-size: var(--font-sm); font-weight: 600; }
 .drop-hint { color: var(--c-ink-2); font-size: var(--font-xs); }
 .file-rules { margin-top: 7px; color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); letter-spacing: .02em; }
@@ -758,7 +758,8 @@ h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight:
 .button--outline:hover { border-color: var(--c-primary); background: color-mix(in oklch, var(--c-primary) 3%, var(--c-surface)); }
 .button--primary { background: var(--c-accent); color: var(--c-surface); }
 .button--primary:hover:not(:disabled) { background: color-mix(in oklch, var(--c-accent) 88%, var(--c-ink)); }
-.choose-button { width: 100%; margin-top: 12px; }
+.choose-button { width: 100%; margin-top: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.button-icon { width: 16px; height: 16px; }
 .choose-button span { font-size: var(--font-base); font-weight: 400; }
 .compression-list { display: grid; gap: 1px; margin-top: 11px; }
 .compression-row { min-width: 0; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 16px; align-items: center; gap: 5px; padding: 6px 0; border-bottom: 1px solid color-mix(in oklch, var(--c-border) 65%, transparent); }
@@ -872,15 +873,15 @@ h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight:
 .submit-meta b { font-size: var(--font-xs); font-weight: 600; }
 .submit-meta small { color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
 .submit-button { min-width: 150px; min-height: 38px; }
-.spinner { width: 11px; height: 11px; border: 1px solid color-mix(in oklch, var(--c-surface) 40%, transparent); border-top-color: var(--c-surface); border-radius: var(--radius-full); animation: spin .7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.btn-scan-icon { width: 22px; height: 22px; vertical-align: middle; }
 .records-section { margin-top: 26px; border-top: 1px solid var(--c-border); }
+.section-rule { width: 100%; display: block; margin: 20px 0 0; }
 .records-heading { justify-content: space-between; padding: 16px 0 11px; }
 .records-heading > div { gap: 9px; }
 .records-count { padding: 2px 6px; border: 1px solid var(--c-border); color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
 .records-caption { color: var(--c-ink-2); font-size: var(--font-xs); }
-.records-empty { display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 64px; border: 1px dashed var(--c-border); color: var(--c-ink-2); font-size: var(--font-xs); }
-.empty-icon { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-sm); }
+.records-empty { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; min-height: 190px; border: 1px dashed var(--c-border); color: var(--c-ink-2); font-size: var(--font-xs); }
+.empty-illustration { width: 180px; max-width: 70%; height: auto; display: block; margin: 0 auto 10px; }
 .records-list { border: 1px solid var(--c-border); background: var(--c-surface); }
 .record-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 75px 90px; align-items: center; gap: 12px; min-height: 52px; padding: 7px 13px; border-bottom: 1px solid color-mix(in oklch, var(--c-border) 70%, transparent); }
 .record-sequence { color: var(--c-accent); font-family: var(--font-mono); font-size: var(--font-xs); }
@@ -900,7 +901,7 @@ h2 { font-family: var(--font-heading); font-size: var(--font-base); font-weight:
 }
 @media (max-width: 600px) {
   .workspace { width: calc(100% - 28px); }
-  .page-heading { padding: 25px 0 20px; }
+  .page-heading { padding: 25px 0 20px; background-image: none; }
   .heading-note { display: none; }
   .upload-column { grid-template-columns: 1fr; }
   .guide-card { grid-row: 1; }
