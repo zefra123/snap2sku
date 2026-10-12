@@ -503,7 +503,6 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
           <h1>把新品，<em>录得更快。</em></h1>
           <p>上传一张商品图，AI 帮你整理商品资料与 SKU。</p>
         </div>
-        <div class="heading-note"><span class="note-icon">↗</span><span>建议使用光线充足、<br>能看清吊牌的照片</span></div>
       </section>
 
       <div v-if="errorMessage" class="notice notice--error" role="alert"><span>!</span>{{ errorMessage }}</div>
@@ -575,7 +574,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
           <section class="guide-card">
             <div class="guide-stamp">TIP<br><small>01</small></div>
-            <div><strong>拍摄小贴士</strong><p>商品正面、细节和吊牌分开拍，识别更准确。模糊或遮挡的字段会提示你确认。</p></div>
+            <div><strong>拍摄小贴士</strong><p>建议使用光线充足、能看清吊牌的照片。商品正面、细节和吊牌分开拍，识别更准确。模糊或遮挡的字段会提示你确认。</p></div>
           </section>
         </aside>
 
@@ -699,16 +698,16 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 :root { font-synthesis: none; }
 body { background-color: var(--c-bg); background-image: url(/brand/page-texture.svg); background-repeat: repeat; background-size: 300px 300px; }
 .app-shell { min-height: 100vh; }
-.workspace { width: min(1240px, calc(100% - 48px)); margin: 0 auto; }
-.page-heading { display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; background-image: url(/brand/hero-bg.svg); background-repeat: no-repeat; background-position: right center; background-size: cover; }
+.workspace { width: min(1320px, calc(100% - 48px)); margin: 0 auto; }
+.page-heading { position: relative; display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; }
+.page-heading::after { position: absolute; inset: 0; z-index: 0; content: ''; background: url(/brand/hero-bg.svg) right center / auto 100% no-repeat; -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); pointer-events: none; }
+.page-heading > div { position: relative; z-index: 1; }
 .eyebrow { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; letter-spacing: .14em; }
 .eyebrow span { padding: 0 4px; color: var(--c-accent); }
 h1,h2,p { margin: 0; }
 h1 { margin-top: 9px; font-family: var(--font-heading); font-size: var(--font-xl); font-weight: 600; letter-spacing: -.04em; }
 h1 em { color: var(--c-accent); font-style: normal; }
 .page-heading p { margin-top: 7px; color: var(--c-ink-2); font-size: var(--font-sm); }
-.heading-note { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; color: var(--c-ink-2); font-size: var(--font-xs); line-height: 1.7; }
-.note-icon { width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid var(--c-border); color: var(--c-primary); font-family: var(--font-mono); }
 .notice { display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 10px 13px; border: 1px solid var(--c-border); font-size: var(--font-xs); }
 .notice > span { font-family: var(--font-mono); font-weight: 700; }
 .notice--error { border-color: color-mix(in oklch, var(--c-error) 35%, var(--c-border)); color: var(--c-error); background: color-mix(in oklch, var(--c-error) 4%, var(--c-surface)); }
@@ -895,14 +894,14 @@ h2 img { width: 20px; height: 20px; }
 .app-footer b { color: var(--c-primary); font-weight: 600; }
 @media (max-width: 900px) {
   .workspace { width: min(100% - 32px, 700px); }
+  .page-heading::after { display: none; }
   .work-grid { grid-template-columns: minmax(0, 1fr); }
   .upload-column { grid-template-columns: minmax(0, 1fr) minmax(210px, .7fr); align-items: stretch; }
   .guide-card { align-self: start; }
 }
 @media (max-width: 600px) {
   .workspace { width: calc(100% - 28px); }
-  .page-heading { padding: 25px 0 20px; background-image: none; }
-  .heading-note { display: none; }
+  .page-heading { padding: 25px 0 20px; }
   .upload-column { grid-template-columns: 1fr; }
   .guide-card { grid-row: 1; }
   .guide-card p { max-width: none; }

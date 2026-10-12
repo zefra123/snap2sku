@@ -1,5 +1,10 @@
+import vueDevTools from "vite-plugin-vue-devtools";
+
 export default defineNuxtConfig({
   devtools: { enabled: true },
+  vite: {
+    plugins: [vueDevTools()],
+  },
   modules: ["@nuxt/fonts"],
   fonts: {
     families: [
