@@ -1,53 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 260" fill="none" aria-label="hero 背景装饰">
-  <defs>
-    <radialGradient id="hb-indigo" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#36508C" stop-opacity=".12"/>
-      <stop offset="100%" stop-color="#36508C" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="hb-ochre" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#B26A3A" stop-opacity=".13"/>
-      <stop offset="100%" stop-color="#B26A3A" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-
-  <!-- 品牌色柔光 -->
-  <ellipse cx="1030" cy="60" rx="340" ry="200" fill="url(#hb-indigo)"/>
-  <ellipse cx="1160" cy="230" rx="330" ry="210" fill="url(#hb-ochre)"/>
-
-  <!-- 右侧编辑插画：取景框 + 衣架 + 扫描线 -->
-  <g opacity=".6">
-    <rect x="846" y="34" width="172" height="172" rx="16" stroke="#36508C" stroke-opacity=".4" stroke-width="2"/>
-    <path d="M862 62v-10a8 8 0 0 1 8-8h10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
-    <path d="M1002 62v-10a8 8 0 0 0-8-8h-10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
-    <path d="M862 178v10a8 8 0 0 0 8 8h10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
-    <path d="M1002 178v10a8 8 0 0 1-8 8h-10" stroke="#36508C" stroke-opacity=".7" stroke-width="4" stroke-linecap="round"/>
-    <path d="M932 92l-2-12a8.5 8.5 0 1 1 7 0" stroke="#36508C" stroke-width="3.2" stroke-linecap="round"/>
-    <path d="M932 92l-46 23h92z" stroke="#36508C" stroke-width="3.2" stroke-linejoin="round"/>
-    <path d="M890 121 L911 109 L932 120 L953 109 L974 121 L967 144 L956 139 L956 182 L914 182 L914 139 L903 144 Z" fill="#DFE8F6" fill-opacity=".75" stroke="#36508C" stroke-width="3" stroke-linejoin="round"/>
-    <path d="M858 150h148" stroke="#B26A3A" stroke-width="3.5" stroke-linecap="round" opacity=".85"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 260" fill="none" role="img" aria-label="hero 背景装饰：取景框、衣架、吊牌与条码">
+  <!-- 取景框：极淡整框 + 四角括弧。全图无任何底色块，底色由页面自身提供 -->
+  <rect x="836" y="36" width="196" height="192" rx="20" stroke="#36508C" stroke-opacity=".10" stroke-width="1.2"/>
+  <g stroke="#36508C" stroke-opacity=".50" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M836 84V58a22 22 0 0 1 22-22h26"/>
+    <path d="M1032 84V58a22 22 0 0 0-22-22h-26"/>
+    <path d="M836 180v26a22 22 0 0 0 22 22h26"/>
+    <path d="M1032 180v26a22 22 0 0 1-22 22h-26"/>
   </g>
 
-  <!-- 吊牌 -->
-  <g opacity=".6">
-    <rect x="1052" y="100" width="88" height="116" rx="12" fill="#FDFBF6" stroke="#E3DDD0"/>
-    <circle cx="1096" cy="116" r="4.6" stroke="#36508C" stroke-width="2.4"/>
-    <rect x="1070" y="132" width="54" height="8" rx="4" fill="#D5DFF0"/>
-    <rect x="1070" y="150" width="38" height="8" rx="4" fill="#EFE1D3"/>
-    <rect x="1070" y="168" width="46" height="8" rx="4" fill="#E3DDD0"/>
+  <!-- 衣架 + 衣物：纯线稿，只留 6% 靛蓝罩色，不铺实色 -->
+  <g stroke="#36508C" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M934 88l-2-12a8.5 8.5 0 1 1 7 0" stroke-opacity=".62" stroke-width="2.4"/>
+    <path d="M934 88l-43 21h86z" stroke-opacity=".62" stroke-width="2.4"/>
+    <path d="M906 116 L890 125 L882 148 L899 155 L899 184 L969 184 L969 155 L986 148 L978 125 L962 116 Q934 128 906 116 Z"
+          fill="#36508C" fill-opacity=".06" stroke-opacity=".55" stroke-width="2.2"/>
   </g>
 
-  <!-- 条码 -->
-  <g opacity=".45" stroke="#332F28" stroke-opacity=".38">
-    <path d="M760 236v-44" stroke-width="3"/>
-    <path d="M770 236v-44" stroke-width="1.5"/>
-    <path d="M778 236v-44" stroke-width="4"/>
-    <path d="M790 236v-44" stroke-width="1.5"/>
-    <path d="M797 236v-44" stroke-width="3"/>
-    <path d="M808 236v-44" stroke-width="1.5"/>
-    <path d="M816 236v-44" stroke-width="4"/>
+  <!-- 扫描线：赭石，AI 识别意象 -->
+  <g stroke="#B26A3A" stroke-linecap="round">
+    <path d="M848 148H1020" stroke-opacity=".70" stroke-width="2.4"/>
+    <path d="M848 141v13" stroke-opacity=".45" stroke-width="2"/>
+    <path d="M1020 141v13" stroke-opacity=".45" stroke-width="2"/>
+  </g>
+
+  <!-- 识别标记点 + 引线 -->
+  <g fill="#36508C" fill-opacity=".50">
+    <circle cx="912" cy="138" r="2.2"/>
+    <circle cx="934" cy="131" r="2.2"/>
+    <circle cx="956" cy="138" r="2.2"/>
+  </g>
+  <path d="M956 138l38-17" stroke="#36508C" stroke-opacity=".28" stroke-width="1.4" stroke-dasharray="3 4" stroke-linecap="round"/>
+
+  <!-- 吊牌：挂绳 + 线框，无实底 -->
+  <path d="M1118 42q10 32-2 58" stroke="#B26A3A" stroke-opacity=".50" stroke-width="1.6" stroke-linecap="round"/>
+  <g>
+    <rect x="1078" y="100" width="76" height="98" rx="10" stroke="#36508C" stroke-opacity=".38" stroke-width="2"/>
+    <circle cx="1116" cy="115" r="4" stroke="#36508C" stroke-opacity=".45" stroke-width="2"/>
+    <rect x="1094" y="130" width="44" height="6" rx="3" fill="#36508C" fill-opacity=".15"/>
+    <rect x="1094" y="146" width="28" height="6" rx="3" fill="#B26A3A" fill-opacity=".22"/>
+    <rect x="1094" y="162" width="36" height="6" rx="3" fill="#36508C" fill-opacity=".10"/>
+  </g>
+
+  <!-- 条码：极细墨线，仅作质感 -->
+  <g stroke="#332F28" stroke-opacity=".18">
+    <path d="M706 240V198" stroke-width="3"/>
+    <path d="M716 240V198" stroke-width="1.4"/>
+    <path d="M724 240V198" stroke-width="3.6"/>
+    <path d="M735 240V198" stroke-width="1.4"/>
+    <path d="M742 240V198" stroke-width="2.8"/>
+    <path d="M752 240V198" stroke-width="1.4"/>
+    <path d="M760 240V198" stroke-width="3.6"/>
+    <path d="M771 240V198" stroke-width="2.8"/>
+    <path d="M780 240V198" stroke-width="1.4"/>
+    <path d="M788 240V198" stroke-width="3"/>
   </g>
 
   <!-- 星芒点缀 -->
-  <path d="M1030 44l6 16 16 6-16 6-6 16-6-16-16-6 16-6z" fill="#B26A3A" opacity=".7"/>
-  <path d="M700 54l4 11 11 4-11 4-4 11-4-11-11-4 11-4z" fill="#36508C" opacity=".45"/>
+  <path d="M1052 44l5 13 13 5-13 5-5 13-5-13-13-5 13-5z" fill="#B26A3A" fill-opacity=".60"/>
+  <path d="M716 54l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" fill="#36508C" fill-opacity=".40"/>
+  <path d="M1186 160l3 8 8 3-8 3-3 8-3-8-8-3 8-3z" fill="#B26A3A" fill-opacity=".50"/>
 </svg>
