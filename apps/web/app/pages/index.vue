@@ -700,7 +700,7 @@ body { background-color: var(--c-bg); background-image: url(/brand/page-texture.
 .app-shell { min-height: 100vh; }
 .workspace { width: min(1320px, calc(100% - 48px)); margin: 0 auto; }
 .page-heading { position: relative; display: flex; justify-content: space-between; align-items: end; padding: 34px 0 27px; }
-.page-heading::after { position: absolute; inset: 0; z-index: 0; content: ''; background: url(/brand/hero-bg.svg) right center / auto 100% no-repeat; -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); pointer-events: none; }
+.page-heading::after { position: absolute; inset: 0; z-index: 0; content: ''; background-color: transparent; background-image: url(/brand/hero-bg.svg); background-position: right center; background-repeat: no-repeat; background-size: auto 100%; -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); mask-image: linear-gradient(to right, transparent 0%, #000 42%, #000 100%); mix-blend-mode: multiply; pointer-events: none; }
 .page-heading > div { position: relative; z-index: 1; }
 .eyebrow { color: var(--c-primary); font-family: var(--font-mono); font-size: var(--font-xs); font-weight: 600; letter-spacing: .14em; }
 .eyebrow span { padding: 0 4px; color: var(--c-accent); }
