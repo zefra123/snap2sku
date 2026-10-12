@@ -17,6 +17,8 @@ import {
   type UploadFile,
 } from '@scope/shared/schema'
 
+definePageMeta({ keepalive: true })
+
 interface QueuedImage {
   key: string
   file: File
