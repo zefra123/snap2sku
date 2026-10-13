@@ -13,7 +13,7 @@ import {
   parseRecognizeResponse,
   parseUploadResponse,
 } from "../../api";
-import { apiBaseUrl } from "../../config";
+import { apiBaseUrl, getApiEnvironment } from "../../config";
 
 const accessCode = ref(uni.getStorageSync("snap2sku-access-code") || "");
 const photoPath = ref("");
@@ -31,6 +31,15 @@ const startedAt = ref(0);
 const recognizedAt = ref(0);
 const saved = ref(false);
 const costEstimate = ref(0);
+const priceErrors = ref({ tagPrice: "", wholesalePrice: "" });
+
+const apiEnvironment = computed(() => getApiEnvironment(apiBaseUrl));
+const apiEnvironmentLabel = computed(() => ({
+  local: "本地",
+  lan: "局域网",
+  online: "线上",
+}[apiEnvironment.value]));
+const usesLocalAddress = computed(() => apiEnvironment.value === "local");
 
 const canSubmit = computed(
   () => Boolean(recognized.value && fileId.value && !busy.value && !saved.value),
@@ -39,7 +48,14 @@ const canSubmit = computed(
 function saveAccessCode(): void {
   uni.setStorageSync("snap2sku-access-code", accessCode.value.trim());
   accessCode.value = accessCode.value.trim();
-  message.value = "访问码已保存在本机";
+  uni.showToast({ title: "访问码已保存", icon: "success" });
+}
+
+function copyApiAddress(): void {
+  uni.setClipboardData({
+    data: apiBaseUrl,
+    success: () => uni.showToast({ title: "地址已复制", icon: "success" }),
+  });
 }
 
 function chooseAndRecognize(): void {
@@ -124,6 +140,9 @@ async function recognizePhoto(uploadedFileId: string) {
 async function submitRecord(): Promise<void> {
   if (!recognized.value || !fileId.value) return;
   clearNotices();
+  const tagPriceValue = validatePrice("tagPrice", "请填写吊牌价");
+  const wholesalePriceValue = validatePrice("wholesalePrice", "请填写批发单价");
+  if (tagPriceValue === undefined || wholesalePriceValue === undefined) return;
   busy.value = true;
   try {
     const now = Date.now();
@@ -143,8 +162,8 @@ async function submitRecord(): Promise<void> {
           color: recognized.value.colors[0]?.name ?? "未命名",
           size: size.value,
           stock: Number(stock.value),
-          tagPrice: Number(tagPrice.value),
-          wholesalePrice: Number(wholesalePrice.value),
+          tagPrice: tagPriceValue,
+          wholesalePrice: wholesalePriceValue,
         },
       ],
       description: "",
@@ -160,6 +179,24 @@ async function submitRecord(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+function validatePrice(
+  field: "tagPrice" | "wholesalePrice",
+  emptyMessage: string,
+): number | undefined {
+  const value = Number(field === "tagPrice" ? tagPrice.value : wholesalePrice.value);
+  if (!Number.isFinite(value) || value <= 0) {
+    priceErrors.value[field] = emptyMessage;
+    showError(emptyMessage);
+    return undefined;
+  }
+  priceErrors.value[field] = "";
+  return value;
+}
+
+function clearPriceError(field: "tagPrice" | "wholesalePrice"): void {
+  priceErrors.value[field] = "";
 }
 
 function requestJson(path: string, data: unknown): Promise<unknown> {
@@ -240,19 +277,8 @@ function showError(messageText: string): void {
 
 <template>
   <view class="page">
-    <view class="card access-card">
-      <text class="title"><image class="title-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />访问码</text>
-      <view class="access-row">
-        <input v-model="accessCode" class="input" password placeholder="服务启用门禁时填写" />
-        <button class="button secondary" @tap="saveAccessCode">保存</button>
-      </view>
-      <text class="hint">访问码仅保存在本机；所有写请求都会发送 x-access-code。</text>
-    </view>
-
     <view class="hero-card">
-      <image class="hero-background" src="/static/brand/hero-bg.svg" mode="widthFix" />
-      <view class="hero-content">
-      <text class="title"><image class="title-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" />商品照片</text>
+      <view class="title"><image class="title-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" /><text>商品照片</text></view>
       <image v-if="photoPath" class="preview" :src="photoPath" mode="aspectFit" />
       <button class="button primary" :disabled="busy" @tap="chooseAndRecognize">
         <image v-if="busy" class="loading-icon" src="/static/brand/loading-scan.svg" mode="aspectFit" />
@@ -260,48 +286,57 @@ function showError(messageText: string): void {
         {{ busy ? '识别中…' : '拍照或从相册选择' }}
       </button>
       <text class="hint">照片会按最长边 1024px、质量 85 压缩后上传。</text>
-      </view>
     </view>
 
     <view v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</view>
     <view v-if="message" class="notice success" role="status">{{ message }}</view>
 
     <view v-if="recognized" class="card">
-      <text class="title"><image class="title-icon" src="/static/brand/icons/scan.svg" mode="aspectFit" />识别结果</text>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />商品名称</text><input v-model="recognized.item_name" class="input" /></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />品类 / 颜色</text><text>{{ recognized.category }} · {{ recognized.colors.map((color) => color.name).join('、') }}</text></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />风格</text><text>{{ recognized.style }}</text></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/album.svg" mode="aspectFit" />季节</text><text>{{ recognized.seasons.join('、') }}</text></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" />适用人群</text><text>{{ recognized.audience }}</text></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" />面料</text><text>{{ recognized.fabric || '未识别' }}</text></view>
-      <view class="field-row"><text class="label"><image class="field-icon" src="/static/brand/icons/size.svg" mode="aspectFit" />SKU 尺码</text>
+      <view class="title"><image class="title-icon" src="/static/brand/icons/scan.svg" mode="aspectFit" /><text>识别结果</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" /><text>商品名称</text></view><input v-model="recognized.item_name" class="input" /></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" /><text>品类 / 颜色</text></view><text>{{ recognized.category }} · {{ recognized.colors.map((color) => color.name).join('、') }}</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" /><text>风格</text></view><text>{{ recognized.style }}</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/album.svg" mode="aspectFit" /><text>季节</text></view><text>{{ recognized.seasons.join('、') }}</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/palette.svg" mode="aspectFit" /><text>适用人群</text></view><text>{{ recognized.audience }}</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" /><text>面料</text></view><text>{{ recognized.fabric || '未识别' }}</text></view>
+      <view class="field-row"><view class="label"><image class="field-icon" src="/static/brand/icons/size.svg" mode="aspectFit" /><text>SKU 尺码</text></view>
         <picker :range="SIZES_TOP" @change="size = SIZES_TOP[Number($event.detail.value)] ?? size">
           <view class="picker-value">{{ size }}　⌄</view>
         </picker>
       </view>
-      <view class="field-row"><text class="label">库存</text><input v-model="stock" class="input numeric" type="number" /></view>
-      <view class="field-row"><text class="label">吊牌价</text><input v-model="tagPrice" class="input numeric" type="digit" placeholder="必填" /></view>
-      <view class="field-row"><text class="label">批发单价</text><input v-model="wholesalePrice" class="input numeric" type="digit" placeholder="必填" /></view>
+      <view class="field-row"><view class="label"><text>库存</text></view><input v-model="stock" class="input numeric" type="number" /></view>
+      <view class="field-row" :class="{ 'field-row--invalid': priceErrors.tagPrice }"><view class="label"><text>吊牌价</text></view><view class="price-field"><input v-model="tagPrice" class="input numeric" type="digit" placeholder="必填" @input="clearPriceError('tagPrice')" /><text v-if="priceErrors.tagPrice" class="field-error">{{ priceErrors.tagPrice }}</text></view></view>
+      <view class="field-row" :class="{ 'field-row--invalid': priceErrors.wholesalePrice }"><view class="label"><text>批发单价</text></view><view class="price-field"><input v-model="wholesalePrice" class="input numeric" type="digit" placeholder="必填" @input="clearPriceError('wholesalePrice')" /><text v-if="priceErrors.wholesalePrice" class="field-error">{{ priceErrors.wholesalePrice }}</text></view></view>
       <button class="button primary" :disabled="!canSubmit" @tap="submitRecord">
         {{ saved ? '已保存' : busy ? '正在保存…' : '提交记录' }}
       </button>
     </view>
 
-    <text class="footer">API：{{ apiBaseUrl }}</text>
+    <view class="card access-card">
+      <view class="title"><image class="title-icon" src="/static/brand/icons/tag.svg" mode="aspectFit" /><text>访问码</text></view>
+      <view class="access-row">
+        <input v-model="accessCode" class="input" password placeholder="服务启用门禁时填写" />
+        <button class="button secondary" @tap="saveAccessCode">保存</button>
+      </view>
+      <text class="hint">访问码仅保存在本机；所有写请求都会发送 x-access-code。</text>
+    </view>
+
+    <view class="api-section">
+      <view v-if="usesLocalAddress" class="api-warning">当前指向本机地址，真机无法访问，请改为局域网 IP</view>
+      <view class="api-row"><text class="api-label">API</text><text class="environment-tag" :class="`environment-tag--${apiEnvironment}`">{{ apiEnvironmentLabel }}</text><text class="api-address" selectable>{{ apiBaseUrl }}</text><button class="copy-button" @tap="copyApiAddress">复制</button></view>
+    </view>
   </view>
 </template>
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
 .card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1rpx solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
-.hero-card { position: relative; overflow: hidden; border: 1rpx solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
-.hero-background { position: absolute; top: 0; right: 0; width: 100%; z-index: 0; }
-.hero-content { position: relative; z-index: 1; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.hero-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1rpx solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
 .title { display: flex; align-items: center; gap: 12rpx; font-size: var(--font-lg); font-weight: 600; }
 .title-icon { width: 40rpx; height: 40rpx; }
 .field-icon { width: 30rpx; height: 30rpx; margin-right: 8rpx; vertical-align: middle; }
 .button-icon { width: 36rpx; height: 36rpx; margin-right: 10rpx; vertical-align: middle; }
-.loading-icon { width: 120rpx; height: 120rpx; margin-right: 8rpx; vertical-align: middle; }
+.loading-icon { width: 36rpx; height: 36rpx; margin-right: 8rpx; vertical-align: middle; }
 .access-row { display: flex; gap: 14rpx; }
 .input { box-sizing: border-box; min-width: 0; flex: 1; padding: 18rpx; border: 1rpx solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-ink); }
 .numeric { max-width: 220rpx; text-align: right; }
@@ -314,8 +349,20 @@ function showError(messageText: string): void {
 .error { border-color: var(--c-error); color: var(--c-error); }
 .success { border-color: var(--c-success); color: var(--c-success); }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; min-height: 68rpx; }
+.field-row--invalid { align-items: flex-start; padding: var(--space-2); border: 1rpx solid var(--c-error); border-radius: var(--radius); }
 .label { display: flex; align-items: center; width: 150rpx; flex: 0 0 auto; color: var(--c-ink-2); font-size: var(--font-sm); }
 .field-row > text:last-child { text-align: right; }
+.price-field { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
+.field-error { color: var(--c-error); font-size: var(--font-xs); }
 .picker-value { min-width: 140rpx; padding: 12rpx; border: 1rpx solid var(--c-border); border-radius: var(--radius); text-align: center; }
-.footer { padding: 8rpx 0 28rpx; overflow-wrap: anywhere; }
+.api-section { display: flex; flex-direction: column; gap: var(--space-2); padding: 8rpx 0 28rpx; }
+.api-warning { padding: var(--space-3); border: 1rpx solid var(--c-warn-ink); border-radius: var(--radius); background: var(--c-warn-bg); color: var(--c-warn-ink); font-size: var(--font-sm); line-height: 1.5; }
+.api-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); color: var(--c-ink-2); font-size: var(--font-xs); }
+.api-label { color: var(--c-ink); font-weight: 600; }
+.environment-tag { padding: 2rpx 10rpx; border-radius: var(--radius-full); font-size: var(--font-xs); }
+.environment-tag--local { background: var(--c-border); color: var(--c-ink-2); }
+.environment-tag--lan { background: var(--c-warn-bg); color: var(--c-warn-ink); }
+.environment-tag--online { background: var(--c-success); color: var(--c-surface); }
+.api-address { flex: 1; min-width: 280rpx; overflow-wrap: anywhere; }
+.copy-button { flex: 0 0 auto; margin: 0; padding: 0 16rpx; border: 1rpx solid var(--c-border); background: var(--c-surface); color: var(--c-primary); font-size: var(--font-xs); line-height: 1.9; }
 </style>
