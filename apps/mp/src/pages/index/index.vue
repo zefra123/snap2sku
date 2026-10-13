@@ -72,17 +72,18 @@ function chooseAndRecognize(): void {
         showError("E_FORMAT: 没有选中图片");
         return;
       }
-      void uploadAndRecognize(path);
+      const selectedFile = Array.isArray(result?.tempFiles) ? result.tempFiles[0] : undefined;
+      void uploadAndRecognize(path, typeof selectedFile?.size === "number" ? selectedFile.size : 0);
     },
     fail: () => showError("E_FORMAT: 拍照或选择图片失败，请重试"),
   });
 }
 
-async function uploadAndRecognize(path: string): Promise<void> {
+async function uploadAndRecognize(path: string, originalFileSize: number): Promise<void> {
   busy.value = true;
   try {
     photoPath.value = path;
-    originalSize.value = await getFileSize(path);
+    originalSize.value = originalFileSize;
     const uploaded: UploadFile = await uploadPhoto(path, originalSize.value);
     fileId.value = uploaded.fileId;
     const recognition = await recognizePhoto(uploaded.fileId);
@@ -212,16 +213,6 @@ function requestJson(path: string, data: unknown): Promise<unknown> {
         resolve(response.data);
       },
       fail: () => reject(new Error("E_UPSTREAM: 请求失败，请检查网络和服务地址")),
-    });
-  });
-}
-
-function getFileSize(path: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    uni.getFileInfo({
-      filePath: path,
-      success: (result) => resolve(result.size),
-      fail: () => reject(new Error("E_FORMAT: 无法读取图片大小")),
     });
   });
 }
