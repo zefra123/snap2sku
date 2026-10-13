@@ -63,7 +63,7 @@ function chooseAndRecognize(): void {
   startedAt.value = Date.now();
   uni.chooseImage({
     count: 1,
-    sizeType: ["original"],
+    sizeType: ["compressed"],
     sourceType: ["camera", "album"],
     success: (result) => {
       const path = result.tempFilePaths[0];
@@ -82,13 +82,7 @@ async function uploadAndRecognize(path: string): Promise<void> {
   try {
     photoPath.value = path;
     originalSize.value = await getFileSize(path);
-    const imageInfo = await getImageDimensions(path);
-    const scale = Math.min(1, 1024 / Math.max(imageInfo.width, imageInfo.height));
-    const compressedPath = await compressPhoto(path, {
-      width: Math.max(1, Math.round(imageInfo.width * scale)),
-      height: Math.max(1, Math.round(imageInfo.height * scale)),
-    });
-    const uploaded: UploadFile = await uploadPhoto(compressedPath, originalSize.value);
+    const uploaded: UploadFile = await uploadPhoto(path, originalSize.value);
     fileId.value = uploaded.fileId;
     const recognition = await recognizePhoto(uploaded.fileId);
     recognized.value = recognition.result;
@@ -231,32 +225,6 @@ function getFileSize(path: string): Promise<number> {
   });
 }
 
-function getImageDimensions(path: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    uni.getImageInfo({
-      src: path,
-      success: ({ width, height }) => resolve({ width, height }),
-      fail: () => reject(new Error("E_FORMAT: 无法读取图片尺寸")),
-    });
-  });
-}
-
-function compressPhoto(
-  path: string,
-  dimensions: { width: number; height: number },
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    uni.compressImage({
-      src: path,
-      quality: 85,
-      compressedWidth: dimensions.width,
-      compressedHeight: dimensions.height,
-      success: (result) => resolve(result.tempFilePath),
-      fail: () => reject(new Error("E_FORMAT: 图片压缩失败，请重新选择")),
-    });
-  });
-}
-
 function createUuid(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
     const random = Math.floor(Math.random() * 16);
@@ -285,7 +253,7 @@ function showError(messageText: string): void {
         <image v-else class="button-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" />
         {{ busy ? '识别中…' : '拍照或从相册选择' }}
       </button>
-      <text class="hint">照片会按最长边 1024px、质量 85 压缩后上传。</text>
+      <text class="hint">微信会先压缩照片，再上传用于识别。</text>
     </view>
 
     <view v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</view>
