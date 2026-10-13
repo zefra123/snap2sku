@@ -63,10 +63,11 @@ function chooseAndRecognize(): void {
   startedAt.value = Date.now();
   uni.chooseImage({
     count: 1,
-    sizeType: ["compressed"],
+    // 旧版微信开发者工具在 chooseImage 的 compressed 分支会访问空的内部对象。
+    sizeType: ["original"],
     sourceType: ["camera", "album"],
     success: (result) => {
-      const path = result.tempFilePaths[0];
+      const path = Array.isArray(result?.tempFilePaths) ? result.tempFilePaths[0] : "";
       if (!path) {
         showError("E_FORMAT: 没有选中图片");
         return;
@@ -253,7 +254,7 @@ function showError(messageText: string): void {
         <image v-else class="button-icon" src="/static/brand/icons/camera.svg" mode="aspectFit" />
         {{ busy ? '识别中…' : '拍照或从相册选择' }}
       </button>
-      <text class="hint">微信会先压缩照片，再上传用于识别。</text>
+      <text class="hint">请选择清晰的商品照片，原图会直接上传用于识别。</text>
     </view>
 
     <view v-if="errorMessage" class="notice error" role="alert">{{ errorMessage }}</view>
