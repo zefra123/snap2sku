@@ -152,3 +152,5 @@ export type ProductRecord = z.infer<typeof ProductRecordSchema>;
 export const RECOGNIZE_FIELD_NAMES = Object.keys(
   RecognizeResultSchema.shape,
 ) as (keyof RecognizeResult)[];
+
+export const PLACEHOLDER_ITEM_NAME = "待人工确认的服装商品";

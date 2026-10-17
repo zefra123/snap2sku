@@ -17,6 +17,7 @@ import {
   getRecordById,
   appendRecord,
   saveGeneratedDescriptionVariants,
+  updateRecordDetails,
 } from "./store";
 
 const temporaryDirectories: string[] = [];
@@ -62,6 +63,38 @@ describe("SQLite store", () => {
       descriptionVariantsAi: variants,
       costEstimate: 0.015,
     });
+  });
+
+  it("保存详情页人工修正并追加修正流水", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const recognize = {
+      ...record.recognize,
+      fabric: "棉混纺",
+    };
+    const sku = record.sku.map((item) => ({
+      ...item,
+      tagPrice: item.tagPrice + 10,
+    }));
+
+    const updated = await updateRecordDetails(record.id, recognize, sku);
+
+    expect(updated?.recognize.fabric).toBe("棉混纺");
+    expect(updated?.sku[0]?.tagPrice).toBe(139);
+    expect(updated?.edits).toContainEqual({
+      field: "fabric",
+      from: null,
+      to: "棉混纺",
+      isCorrection: true,
+    });
+    expect(updated?.edits).toContainEqual({
+      field: "sku:藏青/M:tagPrice",
+      from: 129,
+      to: 139,
+      isCorrection: true,
+    });
+    expect(updated?.aiCorrect.fabric).toBe(false);
   });
 
   it("按 ID 读取单条记录且不会解析其他脏记录", async () => {

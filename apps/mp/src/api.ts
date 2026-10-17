@@ -13,11 +13,13 @@ export function buildAccessHeaders(accessCode: string): Record<string, string> {
 }
 
 export function parseRecognizeResponse(value: unknown): RecognizeResponse {
-  const response = RecognizeResponseSchema.safeParse(value);
+  const response = RecognizeResponseSchema.safeParse(value, { jitless: true });
   if (!response.success) {
     throw new Error("E_RECOGNIZE_INVALID: 识别响应格式不正确");
   }
-  const result = RecognizeResultSchema.safeParse(response.data.result);
+  const result = RecognizeResultSchema.safeParse(response.data.result, {
+    jitless: true,
+  });
   if (!result.success) {
     throw new Error("E_RECOGNIZE_INVALID: 识别结果未通过校验");
   }
@@ -26,13 +28,13 @@ export function parseRecognizeResponse(value: unknown): RecognizeResponse {
 
 export function parseUploadResponse(value: unknown): UploadFile {
   const payload = parseJson(value);
-  const parsed = UploadFileSchema.safeParse(payload);
+  const parsed = UploadFileSchema.safeParse(payload, { jitless: true });
   if (!parsed.success) throw new Error("E_FORMAT: 上传响应格式不正确");
   return parsed.data;
 }
 
 export function parseProductRecord(value: unknown): ProductRecord {
-  const parsed = ProductRecordSchema.safeParse(value);
+  const parsed = ProductRecordSchema.safeParse(value, { jitless: true });
   if (!parsed.success) throw new Error("E_VALIDATION: 商品记录字段不完整");
   return parsed.data;
 }

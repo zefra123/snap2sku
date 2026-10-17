@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, toRaw } from 'vue'
 import {
+  AUDIENCES,
+  CATEGORIES,
   DescribeResultSchema,
+  PLACEHOLDER_ITEM_NAME,
   RECOGNIZE_FIELD_NAMES,
   RecognizeResultSchema,
+  SEASONS,
+  SKUItemSchema,
+  STYLES,
   type DescribeResult,
   type ProductRecord,
   type RecognizeResult,
+  type SKUItem,
 } from '@scope/shared/schema'
 
 const records = ref<ProductRecord[]>([])
@@ -20,6 +27,21 @@ const activePlatforms = ref<Record<string, 'douyin' | 'xiaohongshu' | 'shipinhao
 const descriptionErrors = ref<Record<string, string>>({})
 const descriptionConfidences = ref<Record<string, number>>({})
 const generatingIds = ref(new Set<string>())
+const editDrafts = ref<Record<string, { recognize: RecognizeResult; sku: SKUItem[] }>>({})
+const savingIds = ref(new Set<string>())
+const editErrors = ref<Record<string, string>>({})
+
+type RecognizeFieldKey = Exclude<keyof RecognizeResult, 'confidence'>
+const recognizeFieldLabels: Record<RecognizeFieldKey, string> = {
+  category: '商品品类',
+  colors: '主色调',
+  style: '整体风格',
+  seasons: '适穿季节',
+  audience: '目标人群',
+  fabric: '面料',
+  tagPrice: '建议吊牌价',
+  item_name: '商品命名建议',
+}
 
 onMounted(loadRecords)
 
@@ -276,6 +298,80 @@ function toggleRecord(id: string): void {
   expandedIds.value = next
 }
 
+function beginEdit(record: ProductRecord): void {
+  const snapshot = structuredClone(toRaw(record))
+  editDrafts.value = {
+    ...editDrafts.value,
+    [record.id]: {
+      recognize: snapshot.recognize,
+      sku: snapshot.sku,
+    },
+  }
+  editErrors.value = { ...editErrors.value, [record.id]: '' }
+}
+
+function cancelEdit(recordId: string): void {
+  const next = { ...editDrafts.value }
+  delete next[recordId]
+  editDrafts.value = next
+  editErrors.value = { ...editErrors.value, [recordId]: '' }
+}
+
+function colorEditorValue(recordId: string): string {
+  return (editDrafts.value[recordId]?.recognize.colors ?? [])
+    .map((color) => `${color.name} | ${color.hex}`)
+    .join(', ')
+}
+
+function updateDraftColors(recordId: string, event: Event): void {
+  const draft = editDrafts.value[recordId]
+  if (!draft) return
+  const input = event.target
+  if (!(input instanceof HTMLInputElement)) return
+  draft.recognize.colors = input.value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [name = '', hex = ''] = item.split('|').map((part) => part.trim())
+      return { name, hex }
+    })
+}
+
+function updateDraftTagPrice(recordId: string, event: Event): void {
+  const draft = editDrafts.value[recordId]
+  const input = event.target
+  if (!draft || !(input instanceof HTMLInputElement)) return
+  draft.recognize.tagPrice = input.value === '' ? null : Number(input.value)
+}
+
+async function saveEdit(record: ProductRecord): Promise<void> {
+  const draft = editDrafts.value[record.id]
+  if (!draft) return
+  const recognize = RecognizeResultSchema.safeParse(draft.recognize)
+  const sku = SKUItemSchema.array().min(1).safeParse(draft.sku)
+  if (!recognize.success || !sku.success) {
+    editErrors.value = { ...editErrors.value, [record.id]: '请检查商品字段、颜色格式和 SKU 价格。' }
+    return
+  }
+  savingIds.value = new Set(savingIds.value).add(record.id)
+  editErrors.value = { ...editErrors.value, [record.id]: '' }
+  try {
+    const updated = await $fetch<ProductRecord>(`/api/records/${encodeURIComponent(record.id)}`, {
+      method: 'PUT',
+      body: { recognize: recognize.data, sku: sku.data },
+    })
+    records.value = records.value.map((item) => item.id === record.id ? updated : item)
+    cancelEdit(record.id)
+  } catch {
+    editErrors.value = { ...editErrors.value, [record.id]: '保存失败，请检查访问码或网络后重试。' }
+  } finally {
+    const next = new Set(savingIds.value)
+    next.delete(record.id)
+    savingIds.value = next
+  }
+}
+
 function elapsedMs(record: ProductRecord): number {
   return Math.max(0, record.durationMs.submittedAt - record.durationMs.uploadStart)
 }
@@ -298,19 +394,28 @@ function formatValue(value: unknown): string {
   return String(value)
 }
 
-function terminalFields(record: ProductRecord): Array<{ key: Exclude<keyof RecognizeResult, 'confidence'>; label: string; value: string }> {
+function isPlaceholderName(name: string): boolean {
+  return name === PLACEHOLDER_ITEM_NAME
+}
+
+function terminalFields(record: ProductRecord): Array<{ key: RecognizeFieldKey; label: string; value: string }> {
   return RECOGNIZE_FIELD_NAMES
-    .filter((field): field is Exclude<keyof RecognizeResult, 'confidence'> => field !== 'confidence')
+    .filter((field): field is RecognizeFieldKey => field !== 'confidence')
     .map((key) => ({
       key,
-      label: RecognizeResultSchema.shape[key].description ?? key,
+      label: recognizeFieldLabels[key],
       value: formatValue(record.recognize[key]),
     }))
 }
 
 function editLabel(field: string): string {
+  const skuEdit = /^sku:(.+)\/(.+):(stock|tagPrice|wholesalePrice)$/.exec(field)
+  if (skuEdit) {
+    const detail = { stock: '库存', tagPrice: '吊牌价', wholesalePrice: '批发单价' }[skuEdit[3] as 'stock' | 'tagPrice' | 'wholesalePrice']
+    return `${skuEdit[1]} / ${skuEdit[2]} ${detail}`
+  }
   const key = RECOGNIZE_FIELD_NAMES.find((candidate) => candidate === field)
-  return key ? RecognizeResultSchema.shape[key].description ?? key : field
+  return key && key !== 'confidence' ? recognizeFieldLabels[key] : field
 }
 
 function editValue(value: unknown): string {
@@ -341,15 +446,31 @@ function editValue(value: unknown): string {
         <div v-for="record in records" :key="record.id" class="record-group">
           <button class="record-list-row" type="button" :aria-expanded="expandedIds.has(record.id)" @click="toggleRecord(record.id)">
             <span class="record-thumbnail"><img v-if="record.images[0]" :src="`/api/uploads/${record.images[0]}`" alt="商品缩略图"><span v-else>—</span></span>
-            <span class="record-product"><strong>{{ record.recognize.item_name }}</strong><small>{{ record.recognize.category }} · {{ record.recognize.colors.map((color) => color.name).join(' / ') }}</small></span>
+            <span class="record-product"><strong :class="{ 'is-placeholder': isPlaceholderName(record.recognize.item_name) }">{{ record.recognize.item_name }}</strong><span v-if="isPlaceholderName(record.recognize.item_name)" class="placeholder-tag">AI 未命名</span><small>{{ record.recognize.category }} · {{ record.recognize.colors.map((color) => color.name).join(' / ') }}</small></span>
             <span class="record-metric">{{ record.sku.length }}</span>
             <span class="record-metric">{{ formatDuration(record) }}</span>
             <span class="record-metric">¥{{ record.costEstimate.toFixed(6) }}</span>
             <span class="record-edit-count">{{ record.edits.length ? `${record.edits.length} 项已改` : '无修改' }}</span>
           </button>
           <section v-if="expandedIds.has(record.id)" class="record-ticket" aria-label="已确认的商品终值">
-            <div class="ticket-heading"><span>FINAL PRODUCT VALUES</span><b>已确认为人工终值</b></div>
+            <div class="ticket-heading"><span>FINAL PRODUCT VALUES</span><div class="ticket-heading-actions"><b>{{ record.edits.length ? '已保存人工修正' : '已确认为人工终值' }}</b><button v-if="!editDrafts[record.id]" class="describe-button" type="button" @click.stop="beginEdit(record)">编辑资料</button></div></div>
             <dl class="terminal-fields"><div v-for="field in terminalFields(record)" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div></dl>
+            <section v-if="editDrafts[record.id]" class="record-editor" aria-label="编辑商品资料">
+              <strong>修正商品资料</strong>
+              <div class="record-editor-grid">
+                <label>商品品类<select v-model="editDrafts[record.id]!.recognize.category"><option v-for="item in CATEGORIES" :key="item" :value="item">{{ item }}</option></select></label>
+                <label>整体风格<select v-model="editDrafts[record.id]!.recognize.style"><option v-for="item in STYLES" :key="item" :value="item">{{ item }}</option></select></label>
+                <label>目标人群<select v-model="editDrafts[record.id]!.recognize.audience"><option v-for="item in AUDIENCES" :key="item" :value="item">{{ item }}</option></select></label>
+                <label>面料<input v-model="editDrafts[record.id]!.recognize.fabric" type="text" placeholder="可留空"></label>
+                <label>建议吊牌价（元）<input :value="editDrafts[record.id]!.recognize.tagPrice ?? ''" type="number" min="0.01" step="0.01" @input="updateDraftTagPrice(record.id, $event)"></label>
+                <label>商品命名建议<input v-model="editDrafts[record.id]!.recognize.item_name" type="text" maxlength="16"></label>
+                <label class="record-editor-wide">主色调（颜色名 | 色值，多个用逗号分隔）<input :value="colorEditorValue(record.id)" type="text" placeholder="藏青 | #263A55" @input="updateDraftColors(record.id, $event)"></label>
+                <fieldset class="record-editor-wide"><legend>适穿季节</legend><label v-for="item in SEASONS" :key="item" class="season-choice"><input v-model="editDrafts[record.id]!.recognize.seasons" type="checkbox" :value="item">{{ item }}</label></fieldset>
+              </div>
+              <div class="sku-editor"><strong>SKU 库存与价格</strong><div v-for="(item, index) in editDrafts[record.id]!.sku" :key="`${item.color}-${item.size}`" class="sku-editor-row"><span>{{ item.color }} / {{ item.size }}</span><label>库存<input v-model.number="editDrafts[record.id]!.sku[index]!.stock" type="number" min="0" step="1"></label><label>吊牌价（元）<input v-model.number="editDrafts[record.id]!.sku[index]!.tagPrice" type="number" min="0.01" step="0.01"></label><label>批发单价（元）<input v-model.number="editDrafts[record.id]!.sku[index]!.wholesalePrice" type="number" min="0.01" step="0.01"></label></div></div>
+              <p v-if="editErrors[record.id]" class="description-error" role="alert">{{ editErrors[record.id] }}</p>
+              <div class="record-editor-actions"><button class="describe-button" type="button" :disabled="savingIds.has(record.id)" @click="cancelEdit(record.id)">取消</button><button class="describe-button describe-button--primary" type="button" :disabled="savingIds.has(record.id)" @click="saveEdit(record)">{{ savingIds.has(record.id) ? '保存中…' : '保存修改' }}</button></div>
+            </section>
             <div class="ticket-description">
               <div class="ticket-description-heading"><strong>多平台商品描述</strong><div class="description-actions"><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateDescription(record)">生成通用描述</button><button class="describe-button" type="button" :disabled="generatingIds.has(record.id)" @click="generateVariants(record)">{{ generatingIds.has(record.id) ? '生成中…' : '生成三平台文案' }}</button></div></div>
               <div class="platform-tabs" role="tablist" aria-label="文案平台"><button v-for="platform in [{ key: 'douyin', label: '抖音' }, { key: 'xiaohongshu', label: '小红书' }, { key: 'shipinhao', label: '视频号' }]" :key="platform.key" type="button" role="tab" :aria-selected="(activePlatforms[record.id] ?? 'douyin') === platform.key" @click="activePlatforms[record.id] = platform.key as 'douyin' | 'xiaohongshu' | 'shipinhao'">{{ platform.label }}</button></div>
@@ -395,16 +516,34 @@ function editValue(value: unknown): string {
 .record-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
 .record-product { min-width: 0; display: grid; gap: 5px; }
 .record-product strong { overflow: hidden; font-size: var(--font-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.record-product strong.is-placeholder { color: var(--c-ink-2); font-weight: 500; }
+.placeholder-tag { justify-self: start; padding: 2px 6px; border: 1px solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-bg); color: var(--c-ink-2); font-size: var(--font-xs); line-height: 1.3; }
 .record-product small { color: var(--c-ink-2); font-size: var(--font-xs); }
 .record-metric { color: var(--c-ink); font-family: var(--font-mono); font-size: var(--font-xs); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .record-edit-count { color: var(--c-ink-2); font-size: var(--font-xs); text-align: right; white-space: nowrap; }
 .record-ticket { margin: 0 14px 14px; padding: 16px; border: 1px solid var(--c-border); border-radius: var(--radius-tag); background: var(--c-surface); }
 .ticket-heading { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 11px; border-bottom: 1px solid var(--c-border); color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
+.ticket-heading-actions { display: flex; align-items: center; gap: var(--space-2); }
 .ticket-heading b { color: var(--c-success); font-family: var(--font-body); font-weight: 500; }
 .terminal-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 18px; margin: 14px 0; }
 .terminal-fields div { min-width: 0; }
 .terminal-fields dt,.ticket-description strong,.ticket-skus strong,.edits-flow > strong { margin-bottom: 4px; color: var(--c-ink-2); font-size: var(--font-xs); }
 .terminal-fields dd { margin: 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
+.record-editor { display: grid; gap: var(--space-3); margin: 14px 0; padding: var(--space-3); border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-bg); }
+.record-editor > strong,.sku-editor > strong { color: var(--c-ink); font-size: var(--font-sm); }
+.record-editor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.record-editor-grid > label,.sku-editor-row label { display: grid; gap: var(--space-1); min-width: 0; color: var(--c-ink-2); font-size: var(--font-xs); }
+.record-editor input,.record-editor select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 36px; padding: 6px 9px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-ink); font: inherit; }
+.record-editor-wide { grid-column: 1 / -1; }
+.record-editor fieldset { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 8px; border: 1px solid var(--c-border); }
+.record-editor fieldset legend { padding: 0 4px; color: var(--c-ink-2); font-size: var(--font-xs); }
+.record-editor fieldset .season-choice { display: flex; align-items: center; gap: 5px; color: var(--c-ink); font-size: var(--font-xs); }
+.record-editor fieldset .season-choice input { width: auto; min-height: auto; }
+.sku-editor { display: grid; gap: var(--space-2); }
+.sku-editor-row { display: grid; grid-template-columns: minmax(90px, 1fr) repeat(3, minmax(100px, 1fr)); align-items: end; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--c-border); }
+.sku-editor-row > span { padding-bottom: 8px; color: var(--c-ink); font-size: var(--font-xs); }
+.record-editor-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.describe-button--primary { background: var(--c-primary); color: var(--c-surface); }
 .ticket-description,.ticket-skus { padding-top: 10px; border-top: 1px solid var(--c-border); }
 .ticket-description-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .description-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
@@ -445,5 +584,9 @@ function editValue(value: unknown): string {
   .record-metric:nth-of-type(4),.record-metric:nth-of-type(5) { grid-column: 2; justify-self: start; }
   .record-edit-count { grid-column: 3; grid-row: 2; }
   .terminal-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .record-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .record-editor-wide { grid-column: 1 / -1; }
+  .sku-editor-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sku-editor-row > span { grid-column: 1 / -1; }
 }
 </style>

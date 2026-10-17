@@ -205,6 +205,86 @@ export async function appendRecord(record: ProductRecord): Promise<void> {
   }
 }
 
+export async function updateRecordDetails(
+  recordId: string,
+  recognize: ProductRecord["recognize"],
+  sku: SKUItem[],
+): Promise<ProductRecord | undefined> {
+  const connection = getDatabase();
+  const current = await getRecordById(recordId);
+  if (!current) return undefined;
+
+  const edits = [...current.edits];
+  const aiCorrect = { ...current.aiCorrect };
+  for (const field of [
+    "category",
+    "colors",
+    "style",
+    "seasons",
+    "audience",
+    "fabric",
+    "tagPrice",
+    "item_name",
+  ] as const) {
+    const from = current.recognize[field];
+    const to = recognize[field];
+    if (JSON.stringify(from) === JSON.stringify(to)) continue;
+    edits.push({ field, from, to, isCorrection: true });
+    aiCorrect[field] = false;
+  }
+
+  for (const previous of current.sku) {
+    const next = sku.find(
+      (item) => item.color === previous.color && item.size === previous.size,
+    );
+    if (!next) continue;
+    for (const field of ["stock", "tagPrice", "wholesalePrice"] as const) {
+      if (previous[field] === next[field]) continue;
+      edits.push({
+        field: `sku:${previous.color}/${previous.size}:${field}`,
+        from: previous[field],
+        to: next[field],
+        isCorrection: true,
+      });
+    }
+  }
+
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    connection
+      .prepare(
+        "UPDATE records SET recognize = ?, edits = ?, ai_correct = ? WHERE id = ?",
+      )
+      .run(
+        JSON.stringify(recognize),
+        JSON.stringify(edits),
+        JSON.stringify(aiCorrect),
+        recordId,
+      );
+    connection.prepare("DELETE FROM skus WHERE record_id = ?").run(recordId);
+    const insertSku = connection.prepare(`
+      INSERT INTO skus (record_id, color, size, stock, tag_price, wholesale_price)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const item of sku) {
+      insertSku.run(
+        recordId,
+        item.color,
+        item.size,
+        item.stock,
+        item.tagPrice,
+        item.wholesalePrice,
+      );
+    }
+    connection.exec("COMMIT");
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw error;
+  }
+
+  return getRecordById(recordId);
+}
+
 export async function saveGeneratedDescription(
   recordId: string,
   description: string,

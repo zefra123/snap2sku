@@ -273,20 +273,23 @@ async function selectFiles(files: FileList | File[]): Promise<void> {
       errorMessage.value = '不支持该格式，请使用 JPG、PNG 或 WebP 图片。'
       return undefined
     }
+    let compressedBlob: Blob
     try {
-      const compressedBlob = await compressImage(file)
-      return {
-        key: crypto.randomUUID(),
-        file,
-        previewUrl: URL.createObjectURL(compressedBlob),
-        originalSize: file.size,
-        compressedBlob,
-        compressedSize: compressedBlob.size,
-        status: 'ready',
-      }
-    } catch {
-      errorMessage.value = `无法读取图片「${file.name}」，请换一张 JPG、PNG 或 WebP。`
+      compressedBlob = await compressImage(file)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error('[image-intake] 图片预处理失败', { name: file.name, type: file.type, size: file.size, error })
+      errorMessage.value = `图片「${file.name}」预处理失败：${detail}`
       return undefined
+    }
+    return {
+      key: createQueueKey(),
+      file,
+      previewUrl: URL.createObjectURL(compressedBlob),
+      originalSize: file.size,
+      compressedBlob,
+      compressedSize: compressedBlob.size,
+      status: 'ready',
     }
   }))
   const validAdded = added.filter((item): item is QueuedImage => item !== undefined)
@@ -302,19 +305,72 @@ async function selectFiles(files: FileList | File[]): Promise<void> {
   if (fileInput.value) fileInput.value.value = ''
 }
 
+function createQueueKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
 async function compressImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
-  const ratio = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(bitmap.width * ratio))
-  canvas.height = Math.max(1, Math.round(bitmap.height * ratio))
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error('canvas unavailable')
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  bitmap.close()
-  return await new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('图片压缩失败')), 'image/jpeg', 0.85)
-  })
+  const decoded = await decodeImage(file)
+  try {
+    const ratio = Math.min(1, 1024 / Math.max(decoded.width, decoded.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(decoded.width * ratio))
+    canvas.height = Math.max(1, Math.round(decoded.height * ratio))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('canvas unavailable')
+    context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height)
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('图片压缩失败')), 'image/jpeg', 0.85)
+    })
+  } finally {
+    decoded.cleanup()
+  }
+}
+
+async function decodeImage(file: File): Promise<{
+  source: CanvasImageSource
+  width: number
+  height: number
+  cleanup: () => void
+}> {
+  let bitmapError = 'createImageBitmap 不可用'
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file)
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        cleanup: () => bitmap.close(),
+      }
+    } catch (error) {
+      bitmapError = error instanceof Error ? error.message : String(error)
+      // 部分浏览器对 createImageBitmap 支持不完整，回退到原生 Image 解码。
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('原生 Image 解码失败'))
+      image.src = objectUrl
+    })
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      cleanup: () => URL.revokeObjectURL(objectUrl),
+    }
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    const imageError = error instanceof Error ? error.message : String(error)
+    throw new Error(`图片解码失败；createImageBitmap：${bitmapError}；Image：${imageError}`)
+  }
 }
 
 function removeImage(key: string): void {
@@ -452,7 +508,7 @@ async function submitRecord(): Promise<void> {
   try {
     const now = Date.now()
     const draft = {
-      id: crypto.randomUUID(),
+      id: createQueueKey(),
       createdAt: new Date(now).toISOString(),
       durationMs: { uploadStart: uploadStart.value ?? now, recognizedAt: recognizedAt.value ?? now, submittedAt: now },
       images: imageQueue.value.flatMap((image) => image.uploaded ? [image.uploaded.fileId] : []),
