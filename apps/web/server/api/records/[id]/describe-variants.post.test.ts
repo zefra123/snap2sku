@@ -147,6 +147,7 @@ function createEvent(id: string, disconnect = false) {
 function createRecord(): ProductRecord {
   return {
     id: "b8d18f28-5964-4c9e-a2f8-0ae388a32d74",
+    detailsVersion: 0,
     createdAt: "2026-10-09T00:00:00.000Z",
     durationMs: { uploadStart: 1, recognizedAt: 2, submittedAt: 3 },
     images: ["a0df5979-b3df-46c7-9c42-266729eb834b"],

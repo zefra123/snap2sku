@@ -92,6 +92,7 @@ export async function handleDescriptionVariants(
   if (
     !(await saveGeneratedDescriptionVariants(
       record.id,
+      source,
       variants,
       generated.costEstimate,
     ))

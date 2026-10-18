@@ -81,6 +81,7 @@ export async function handleRecordDescription(
   if (
     !(await saveGeneratedDescription(
       record.id,
+      source,
       result.description,
       generated.costEstimate,
     ))

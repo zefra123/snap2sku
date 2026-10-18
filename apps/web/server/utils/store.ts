@@ -8,8 +8,10 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
+  DescriptionSourceSchema,
   ProductRecordSchema,
   type ProductRecord,
+  type DescriptionSource,
   type SKUItem,
 } from "@scope/shared/schema";
 
@@ -42,6 +44,7 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
   connection.exec(`
     CREATE TABLE IF NOT EXISTS records (
       id TEXT PRIMARY KEY,
+      details_version INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       duration_ms TEXT NOT NULL,
       images TEXT NOT NULL,
@@ -71,6 +74,11 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
   ) {
     connection.exec(
       "ALTER TABLE records ADD COLUMN description_variants_ai TEXT",
+    );
+  }
+  if (!recordColumns.some((column) => column.name === "details_version")) {
+    connection.exec(
+      "ALTER TABLE records ADD COLUMN details_version INTEGER NOT NULL DEFAULT 0",
     );
   }
   database = connection;
@@ -134,6 +142,7 @@ export async function readRecords(): Promise<ProductRecord[]> {
   return records.map((row) =>
     ProductRecordSchema.parse({
       id: row.id,
+      detailsVersion: row.details_version,
       createdAt: row.created_at,
       durationMs: parseJson(row.duration_ms),
       images: parseJson(row.images),
@@ -156,6 +165,10 @@ export async function readRecords(): Promise<ProductRecord[]> {
 export async function getRecordById(
   recordId: string,
 ): Promise<ProductRecord | undefined> {
+  return readRecordById(recordId);
+}
+
+function readRecordById(recordId: string): ProductRecord | undefined {
   const connection = getDatabase();
   const row = connection
     .prepare("SELECT * FROM records WHERE id = ?")
@@ -175,6 +188,7 @@ export async function getRecordById(
 
   return ProductRecordSchema.parse({
     id: row.id,
+    detailsVersion: row.details_version,
     createdAt: row.created_at,
     durationMs: parseJson(row.duration_ms),
     images: parseJson(row.images),
@@ -207,58 +221,84 @@ export async function appendRecord(record: ProductRecord): Promise<void> {
 
 export async function updateRecordDetails(
   recordId: string,
+  expectedDetailsVersion: number,
   recognize: ProductRecord["recognize"],
   sku: SKUItem[],
-): Promise<ProductRecord | undefined> {
+): Promise<
+  | { kind: "updated"; record: ProductRecord }
+  | { kind: "not-found" }
+  | { kind: "conflict" }
+> {
   const connection = getDatabase();
-  const current = await getRecordById(recordId);
-  if (!current) return undefined;
-
-  const edits = [...current.edits];
-  const aiCorrect = { ...current.aiCorrect };
-  for (const field of [
-    "category",
-    "colors",
-    "style",
-    "seasons",
-    "audience",
-    "fabric",
-    "tagPrice",
-    "item_name",
-  ] as const) {
-    const from = current.recognize[field];
-    const to = recognize[field];
-    if (JSON.stringify(from) === JSON.stringify(to)) continue;
-    edits.push({ field, from, to, isCorrection: true });
-    aiCorrect[field] = false;
-  }
-
-  for (const previous of current.sku) {
-    const next = sku.find(
-      (item) => item.color === previous.color && item.size === previous.size,
-    );
-    if (!next) continue;
-    for (const field of ["stock", "tagPrice", "wholesalePrice"] as const) {
-      if (previous[field] === next[field]) continue;
-      edits.push({
-        field: `sku:${previous.color}/${previous.size}:${field}`,
-        from: previous[field],
-        to: next[field],
-        isCorrection: true,
-      });
-    }
-  }
-
   connection.exec("BEGIN IMMEDIATE");
   try {
+    const current = readRecordById(recordId);
+    if (!current) {
+      connection.exec("ROLLBACK");
+      return { kind: "not-found" };
+    }
+    if (current.detailsVersion !== expectedDetailsVersion) {
+      connection.exec("ROLLBACK");
+      return { kind: "conflict" };
+    }
+
+    const edits = [...current.edits];
+    const aiCorrect = { ...current.aiCorrect };
+    for (const field of [
+      "category",
+      "colors",
+      "style",
+      "seasons",
+      "audience",
+      "fabric",
+      "tagPrice",
+      "item_name",
+    ] as const) {
+      const from = current.recognize[field];
+      const to = recognize[field];
+      if (JSON.stringify(from) === JSON.stringify(to)) continue;
+      edits.push({ field, from, to, isCorrection: true });
+      aiCorrect[field] = false;
+    }
+
+    for (const previous of current.sku) {
+      const next = sku.find(
+        (item) => item.color === previous.color && item.size === previous.size,
+      );
+      if (!next) continue;
+      for (const field of ["stock", "tagPrice", "wholesalePrice"] as const) {
+        if (previous[field] === next[field]) continue;
+        edits.push({
+          field: `sku:${previous.color}/${previous.size}:${field}`,
+          from: previous[field],
+          to: next[field],
+          isCorrection: true,
+        });
+      }
+    }
+
+    const detailsChanged =
+      JSON.stringify(current.recognize) !== JSON.stringify(recognize) ||
+      JSON.stringify(current.sku) !== JSON.stringify(sku);
+    const sourceChanged =
+      JSON.stringify(DescriptionSourceSchema.parse(current.recognize)) !==
+      JSON.stringify(DescriptionSourceSchema.parse(recognize));
     connection
       .prepare(
-        "UPDATE records SET recognize = ?, edits = ?, ai_correct = ? WHERE id = ?",
+        `UPDATE records
+         SET recognize = ?, edits = ?, ai_correct = ?,
+             description_ai = CASE WHEN ? THEN NULL ELSE description_ai END,
+             description_variants_ai = CASE WHEN ? THEN NULL ELSE description_variants_ai END,
+             details_version = details_version + ?
+         WHERE id = ?`,
       )
       .run(
         JSON.stringify(recognize),
         JSON.stringify(edits),
         JSON.stringify(aiCorrect),
+        sourceChanged ? 1 : 0,
+        sourceChanged ? 1 : 0,
+        detailsChanged ? 1 : 0,
         recordId,
       );
     connection.prepare("DELETE FROM skus WHERE record_id = ?").run(recordId);
@@ -282,38 +322,76 @@ export async function updateRecordDetails(
     throw error;
   }
 
-  return getRecordById(recordId);
+  const updated = await getRecordById(recordId);
+  return updated ? { kind: "updated", record: updated } : { kind: "not-found" };
 }
 
 export async function saveGeneratedDescription(
   recordId: string,
+  expectedSource: DescriptionSource,
   description: string,
   additionalCostEstimate = 0,
 ): Promise<boolean> {
-  const result = getDatabase()
-    .prepare(
-      "UPDATE records SET description_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
-    )
-    .run(description, additionalCostEstimate, recordId);
-  return result.changes > 0;
+  return saveGeneratedCopy(
+    recordId,
+    expectedSource,
+    (connection) =>
+      connection
+        .prepare(
+          "UPDATE records SET description_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
+        )
+        .run(description, additionalCostEstimate, recordId).changes > 0,
+  );
 }
 
 export async function saveGeneratedDescriptionVariants(
   recordId: string,
+  expectedSource: DescriptionSource,
   descriptionVariantsAi: ProductRecord["descriptionVariantsAi"],
   additionalCostEstimate = 0,
 ): Promise<boolean> {
   if (!descriptionVariantsAi) return false;
-  const result = getDatabase()
-    .prepare(
-      "UPDATE records SET description_variants_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
-    )
-    .run(
-      JSON.stringify(descriptionVariantsAi),
-      additionalCostEstimate,
-      recordId,
-    );
-  return result.changes > 0;
+  return saveGeneratedCopy(
+    recordId,
+    expectedSource,
+    (connection) =>
+      connection
+        .prepare(
+          "UPDATE records SET description_variants_ai = ?, cost_estimate = cost_estimate + ? WHERE id = ?",
+        )
+        .run(
+          JSON.stringify(descriptionVariantsAi),
+          additionalCostEstimate,
+          recordId,
+        ).changes > 0,
+  );
+}
+
+async function saveGeneratedCopy(
+  recordId: string,
+  expectedSource: DescriptionSource,
+  write: (connection: Database) => boolean,
+): Promise<boolean> {
+  const connection = getDatabase();
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    const current = readRecordById(recordId);
+    if (!current) {
+      connection.exec("ROLLBACK");
+      return false;
+    }
+    const currentSource = DescriptionSourceSchema.parse(current.recognize);
+    if (JSON.stringify(currentSource) !== JSON.stringify(expectedSource)) {
+      connection.exec("ROLLBACK");
+      return false;
+    }
+    const saved = write(connection);
+    connection.exec(saved ? "COMMIT" : "ROLLBACK");
+    return saved;
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function getDatabase(): Database {
@@ -364,13 +442,14 @@ function insertRecord(
     .prepare(
       `
     INSERT ${insertMode}INTO records (
-      id, created_at, duration_ms, images, recognize, edits, ai_correct,
+      id, details_version, created_at, duration_ms, images, recognize, edits, ai_correct,
       cost_estimate, description, description_ai, description_variants_ai
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .run(
       record.id,
+      record.detailsVersion,
       record.createdAt,
       JSON.stringify(record.durationMs),
       JSON.stringify(record.images),
@@ -408,6 +487,7 @@ function parseJson(value: string): unknown {
 
 interface DatabaseRow {
   id: string;
+  details_version: number;
   created_at: string;
   duration_ms: string;
   images: string;
