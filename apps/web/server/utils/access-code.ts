@@ -29,3 +29,20 @@ export function assertProductionAccessCodeConfigured(
     throw new Error("必须设置 NUXT_ACCESS_CODE，否则拒绝启动");
   }
 }
+
+export function assertProductionUploadSigningSecretConfigured(
+  isProduction: boolean,
+  secret: string,
+): void {
+  if (!isProduction) return;
+  const keyBytes = Buffer.from(secret, "base64url");
+  if (
+    !/^[A-Za-z0-9_-]{43}$/.test(secret) ||
+    keyBytes.byteLength !== 32 ||
+    keyBytes.toString("base64url") !== secret
+  ) {
+    throw new Error(
+      "必须设置至少 32 字节随机值的 NUXT_UPLOAD_SIGNING_SECRET，否则拒绝启动",
+    );
+  }
+}

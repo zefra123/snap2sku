@@ -140,6 +140,10 @@ export const ProductRecordSchema = z.object({
   costEstimate: z.number().nonnegative(),
 });
 
+export const ProductRecordWithImageUrlsSchema = ProductRecordSchema.extend({
+  imageUrls: z.array(z.string().startsWith("/api/uploads/")),
+});
+
 export type RecognizeResult = z.infer<typeof RecognizeResultSchema>;
 export type ModelUsage = z.infer<typeof ModelUsageSchema>;
 export type RecognizeResponse = z.infer<typeof RecognizeResponseSchema>;
@@ -150,6 +154,9 @@ export type DescriptionPlatform = keyof typeof DescriptionVariantsSchema.shape;
 export type UploadFile = z.infer<typeof UploadFileSchema>;
 export type SKUItem = z.infer<typeof SKUItemSchema>;
 export type ProductRecord = z.infer<typeof ProductRecordSchema>;
+export type ProductRecordWithImageUrls = z.infer<
+  typeof ProductRecordWithImageUrlsSchema
+>;
 
 export const RECOGNIZE_FIELD_NAMES = Object.keys(
   RecognizeResultSchema.shape,

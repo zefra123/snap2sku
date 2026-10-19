@@ -7,6 +7,7 @@ import {
   DescriptionSourceSchema,
   DescribeResultSchema,
   PLACEHOLDER_ITEM_NAME,
+  ProductRecordWithImageUrlsSchema,
   RECOGNIZE_FIELD_NAMES,
   RecognizeResultSchema,
   SEASONS,
@@ -14,11 +15,12 @@ import {
   STYLES,
   type DescribeResult,
   type ProductRecord,
+  type ProductRecordWithImageUrls,
   type RecognizeResult,
   type SKUItem,
 } from "@scope/shared/schema";
 
-const records = ref<ProductRecord[]>([]);
+const records = ref<ProductRecordWithImageUrls[]>([]);
 const totalCostEstimate = computed(() =>
   records.value.reduce((total, record) => total + record.costEstimate, 0),
 );
@@ -71,7 +73,9 @@ async function loadRecords(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
   try {
-    records.value = await apiFetch<ProductRecord[]>("/api/records");
+    records.value = ProductRecordWithImageUrlsSchema.array().parse(
+      await apiFetch<unknown>("/api/records"),
+    );
   } catch {
     errorMessage.value = "记录暂时无法读取，请刷新页面重试。";
   } finally {
@@ -547,7 +551,7 @@ async function saveEdit(record: ProductRecord): Promise<void> {
       },
     );
     records.value = records.value.map((item) =>
-      item.id === record.id ? updated : item,
+      item.id === record.id ? { ...updated, imageUrls: item.imageUrls } : item,
     );
     if (sourceChanged) {
       generationControllers.value[record.id]?.abort();
@@ -711,7 +715,7 @@ function editValue(value: unknown): string {
             <span class="record-thumbnail"
               ><img
                 v-if="record.images[0]"
-                :src="`/api/uploads/${record.images[0]}`"
+                :src="record.imageUrls[0]"
                 alt="商品缩略图"
               /><span v-else>—</span></span
             >

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { checkAccessCodeRequest } from "./access-code";
-import { assertProductionAccessCodeConfigured } from "../utils/access-code";
+import {
+  assertProductionAccessCodeConfigured,
+  assertProductionUploadSigningSecretConfigured,
+} from "../utils/access-code";
 
 describe("access code request policy", () => {
   it("production startup rejects an empty code while development allows it", () => {
@@ -10,6 +13,24 @@ describe("access code request policy", () => {
     expect(() => assertProductionAccessCodeConfigured(false, "")).not.toThrow();
     expect(() =>
       assertProductionAccessCodeConfigured(true, "configured"),
+    ).not.toThrow();
+  });
+
+  it("requires a canonical 32-byte signing key in production", () => {
+    const key = Buffer.alloc(32, 7).toString("base64url");
+    expect(() =>
+      assertProductionUploadSigningSecretConfigured(true, ""),
+    ).toThrow(
+      "必须设置至少 32 字节随机值的 NUXT_UPLOAD_SIGNING_SECRET，否则拒绝启动",
+    );
+    expect(() =>
+      assertProductionUploadSigningSecretConfigured(true, "too-short"),
+    ).toThrow("NUXT_UPLOAD_SIGNING_SECRET");
+    expect(() =>
+      assertProductionUploadSigningSecretConfigured(true, key),
+    ).not.toThrow();
+    expect(() =>
+      assertProductionUploadSigningSecretConfigured(false, ""),
     ).not.toThrow();
   });
 
@@ -40,14 +61,35 @@ describe("access code request policy", () => {
     );
   });
 
-  it.each(["GET", "HEAD", "OPTIONS"])(
-    "%s requests bypass the write gate",
+  it.each(["HEAD", "OPTIONS"])(
+    "%s requests bypass the write and read gate",
     (method) => {
       expect(checkAccessCodeRequest(method, "/api/records", "", "", true)).toBe(
         "bypassed",
       );
     },
   );
+
+  it("GET /api/records requires a code while other API reads remain public", () => {
+    expect(() =>
+      checkAccessCodeRequest("GET", "/api/records", "", "", true),
+    ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(
+      checkAccessCodeRequest("GET", "/api/records", "secret", "secret", true),
+    ).toBe("validated");
+    expect(() =>
+      checkAccessCodeRequest("GET", "/api/records/", "", "", true),
+    ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(() =>
+      checkAccessCodeRequest("GET", "/api/records/abc", "", "", true),
+    ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(checkAccessCodeRequest("GET", "/api/health", "", "", true)).toBe(
+      "bypassed",
+    );
+    expect(
+      checkAccessCodeRequest("GET", "/api/uploads/file", "", "", true),
+    ).toBe("bypassed");
+  });
 
   it("non-API writes bypass the gate", () => {
     expect(checkAccessCodeRequest("POST", "/health", "", "", true)).toBe(

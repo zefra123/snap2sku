@@ -27,6 +27,8 @@ export default defineNuxtConfig({
   css: ["~/assets/css/tokens.css"],
   runtimeConfig: {
     accessCode: "",
+    uploadSigningSecret: "",
+    uploadSigningSecretPrevious: "",
     visionApiKey: "",
     visionModel: "glm-4v-flash",
     visionBaseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",

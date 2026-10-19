@@ -34,7 +34,11 @@ export function checkAccessCodeRequest(
   suppliedCode: string,
   isProduction: boolean,
 ): "bypassed" | "disabled" | "validated" {
-  if (readOnlyMethods.has(method) || !isApiPath(pathname)) return "bypassed";
+  const isProtectedRead =
+    method === "GET" &&
+    (pathname === "/api/records" || pathname.startsWith("/api/records/"));
+  const isProtectedWrite = !readOnlyMethods.has(method) && isApiPath(pathname);
+  if (!isProtectedRead && !isProtectedWrite) return "bypassed";
   if (!configuredCode.trim()) {
     if (isProduction) throwAccessCodeRequired();
     return "disabled";
