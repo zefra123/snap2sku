@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
+import { apiFetch } from '../utils/api'
 import {
   AUDIENCES,
   CATEGORIES,
@@ -406,7 +407,7 @@ async function uploadImages(): Promise<void> {
       if (!blob) throw new Error('图片压缩数据不存在')
       formData.append('image', blob, image.file.name.replace(/\.[^.]+$/, '.jpg'))
       formData.append('originalSize', String(image.originalSize))
-      image.uploaded = await $fetch<UploadFile>('/api/upload', { method: 'POST', body: formData })
+      image.uploaded = await apiFetch<UploadFile>('/api/upload', { method: 'POST', body: formData })
       image.status = 'uploaded'
     }
     statusMessage.value = '图片已上传，可以开始识别。'
@@ -434,7 +435,7 @@ async function recognize(): Promise<void> {
   errorMessage.value = ''
   statusMessage.value = '正在识别商品信息…'
   try {
-    const recognizedResponse = RecognizeResponseSchema.parse(await $fetch('/api/recognize', {
+    const recognizedResponse = RecognizeResponseSchema.parse(await apiFetch('/api/recognize', {
       method: 'POST',
       body: { fileId: firstImage.uploaded.fileId, mockFixture: mockFixture.value },
     }))
@@ -479,7 +480,7 @@ function removeSize(size: string): void {
 
 async function refreshRecords(): Promise<void> {
   try {
-    recordList.value = await $fetch<ProductRecord[]>('/api/records')
+    recordList.value = await apiFetch<ProductRecord[]>('/api/records')
   } catch {
     recordList.value = []
   }
@@ -520,7 +521,7 @@ async function submitRecord(): Promise<void> {
       costEstimate: recognitionCostEstimate.value,
     }
     const record = ProductRecordSchema.parse(draft)
-    const saved = await $fetch<ProductRecord>('/api/records', { method: 'POST', body: record })
+    const saved = await apiFetch<ProductRecord>('/api/records', { method: 'POST', body: record })
     recordList.value = [saved, ...recordList.value]
     currentRecognitionSaved.value = true
     statusMessage.value = '商品记录已保存。'

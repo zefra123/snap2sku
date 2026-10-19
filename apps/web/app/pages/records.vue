@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRaw } from "vue";
+import { apiFetch, apiStream } from "../utils/api";
 import {
   AUDIENCES,
   CATEGORIES,
@@ -70,7 +71,7 @@ async function loadRecords(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
   try {
-    records.value = await $fetch<ProductRecord[]>("/api/records");
+    records.value = await apiFetch<ProductRecord[]>("/api/records");
   } catch {
     errorMessage.value = "记录暂时无法读取，请刷新页面重试。";
   } finally {
@@ -96,7 +97,7 @@ async function generateDescription(record: ProductRecord): Promise<void> {
   let pendingCostEstimate: number | undefined;
 
   try {
-    const response = await fetch(
+    const response = await apiStream(
       `/api/records/${encodeURIComponent(record.id)}/describe`,
       {
         method: "POST",
@@ -205,7 +206,7 @@ async function generateVariants(record: ProductRecord): Promise<void> {
     Record<"douyin" | "xiaohongshu" | "shipinhao", DescribeResult["confidence"]>
   > = {};
   try {
-    const response = await fetch(
+    const response = await apiStream(
       `/api/records/${encodeURIComponent(record.id)}/describe-variants`,
       { method: "POST", signal: controller.signal },
     );
@@ -534,7 +535,7 @@ async function saveEdit(record: ProductRecord): Promise<void> {
     JSON.stringify(DescriptionSourceSchema.parse(record.recognize)) !==
     JSON.stringify(DescriptionSourceSchema.parse(recognize.data));
   try {
-    const updated = await $fetch<ProductRecord>(
+    const updated = await apiFetch<ProductRecord>(
       `/api/records/${encodeURIComponent(record.id)}`,
       {
         method: "PUT",
