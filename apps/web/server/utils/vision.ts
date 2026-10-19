@@ -285,9 +285,7 @@ export async function recognizeImage(
   const config = useRuntimeConfig(event);
   const imagePath = await findUploadPath(fileId);
   if (!imagePath) failApi(404, "E_FILE_NOT_FOUND", "找不到已上传的图片");
-  const mockEnabled =
-    String(config.visionMock) === "1" || config.public.visionMock;
-  if (mockEnabled) return createMockRecognizeResponse(fixture);
+  if (isVisionMockEnabled(config)) return createMockRecognizeResponse(fixture);
 
   if (!config.visionApiKey) {
     failApi(
@@ -312,6 +310,13 @@ export async function recognizeImage(
     Number(config.visionInputPricePerMillion),
     Number(config.visionOutputPricePerMillion),
   );
+}
+
+export function isVisionMockEnabled(config: {
+  visionMock?: unknown;
+  public?: { visionMock?: unknown };
+}): boolean {
+  return String(config.visionMock ?? "0") === "1";
 }
 
 export async function describeProduct(

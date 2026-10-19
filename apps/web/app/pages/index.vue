@@ -40,8 +40,7 @@ interface FieldEdit {
   isCorrection: boolean
 }
 
-const config = useRuntimeConfig()
-const mockEnabled = computed(() => config.public.visionMock)
+const mockEnabled = ref(false)
 const mockFixture = ref<'tagPrice' | 'noTagPrice' | 'allNull'>('tagPrice')
 const fileInput = ref<HTMLInputElement>()
 const uploadPanel = ref<HTMLElement>()
@@ -488,6 +487,15 @@ async function refreshRecords(): Promise<void> {
   }
 }
 
+async function refreshRuntimeInfo(): Promise<void> {
+  try {
+    const info = await apiFetch<{ mock: boolean }>('/api/runtime-info')
+    mockEnabled.value = info.mock
+  } catch {
+    mockEnabled.value = false
+  }
+}
+
 async function submitRecord(): Promise<void> {
   if (!result.value) {
     errorMessage.value = '请先识别商品并确认表单。'
@@ -575,7 +583,10 @@ function readErrorCode(error: unknown): string | undefined {
   return undefined
 }
 
-onMounted(() => void refreshRecords())
+onMounted(() => {
+  void refreshRecords()
+  void refreshRuntimeInfo()
+})
 onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(image.previewUrl)))
 </script>
 
