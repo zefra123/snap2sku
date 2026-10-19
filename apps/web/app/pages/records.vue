@@ -173,11 +173,11 @@ async function generateDescription(record: ProductRecord): Promise<void> {
         };
       }
     }
-  } catch {
+  } catch (error) {
     if (!controller.signal.aborted) {
       descriptionErrors.value = {
         ...descriptionErrors.value,
-        [record.id]: "描述未保存，请重新生成",
+        [record.id]: readGenerationError(error),
       };
     }
   } finally {
@@ -279,11 +279,11 @@ async function generateVariants(record: ProductRecord): Promise<void> {
       if (pendingCostEstimate !== undefined)
         record.costEstimate = pendingCostEstimate;
     }
-  } catch {
+  } catch (error) {
     if (!controller.signal.aborted)
       descriptionErrors.value = {
         ...descriptionErrors.value,
-        [record.id]: "描述未保存，请重新生成",
+        [record.id]: readGenerationError(error),
       };
   } finally {
     if (generationControllers.value[record.id] === controller) {
@@ -442,6 +442,26 @@ function isDescriptionChunk(value: unknown): value is { text: string } {
 
 function confidenceTickCount(confidence: number): number {
   return Math.max(1, Math.min(5, Math.round(confidence * 5)));
+}
+
+function readGenerationError(error: unknown): string {
+  if (error instanceof Error) {
+    try {
+      const payload: unknown = JSON.parse(error.message);
+      if (typeof payload === "object" && payload !== null) {
+        const code = "code" in payload && typeof payload.code === "string"
+          ? payload.code
+          : "E_WRITE_FAILED";
+        const message = "message" in payload && typeof payload.message === "string"
+          ? payload.message
+          : "描述保存失败，请稍后重试";
+        return `${code}：${message}`;
+      }
+    } catch {
+      return error.message || "描述未保存，请重新生成";
+    }
+  }
+  return "描述未保存，请重新生成";
 }
 
 async function responseErrorMessage(response: Response): Promise<string> {

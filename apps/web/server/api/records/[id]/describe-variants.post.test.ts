@@ -9,6 +9,7 @@ import {
   initializeStore,
   appendRecord,
   readRecords,
+  updateRecordDetails,
 } from "../../../utils/store";
 import { createMockDescriptionVariants } from "../../../utils/vision";
 import { handleDescriptionVariants } from "./describe-variants.post";
@@ -37,6 +38,12 @@ describe("POST /api/records/:id/describe-variants", () => {
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);
+    await expect(response.doneSnapshot).resolves.toMatchObject([
+      {
+        id: record.id,
+        descriptionVariantsAi: { douyin: {}, xiaohongshu: {}, shipinhao: {} },
+      },
+    ]);
     await expect(readRecords()).resolves.toMatchObject([
       {
         costEstimate: 0.012,
@@ -108,6 +115,44 @@ describe("POST /api/records/:id/describe-variants", () => {
     ]);
     expect((await readRecords())[0]?.descriptionVariantsAi).toBeUndefined();
   });
+
+  it("does not send done when saving fails; emits E_WRITE_FAILED and keeps cost", async () => {
+    initializeStore(createDirectory());
+    const record = createRecord();
+    record.costEstimate = 0.012;
+    await appendRecord(record);
+    const { event, chunks, response } = createEvent(record.id);
+
+    await handleDescriptionVariants(event, {
+      mock: false,
+      generate: async () => {
+        await updateRecordDetails(
+          record.id,
+          0,
+          { ...record.recognize, style: "休闲" },
+          record.sku,
+        );
+        return {
+          result: createMockDescriptionVariants(record.recognize),
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+          },
+          costEstimate: 0.004,
+        };
+      },
+    });
+
+    expect(chunks.join("")).not.toContain("event: done");
+    expect(chunks.join("")).toContain(
+      'event: error\ndata: {"code":"E_WRITE_FAILED","message":"描述保存失败，请稍后重试"}',
+    );
+    expect(response.ended).toBe(true);
+    const saved = (await readRecords())[0]!;
+    expect(saved).not.toHaveProperty("descriptionVariantsAi");
+    expect(saved.costEstimate).toBe(0.012);
+  });
 });
 
 function createDirectory(): string {
@@ -127,6 +172,7 @@ function createEvent(id: string, disconnect = false) {
     flushHeaders() {},
     write(chunk: string) {
       chunks.push(chunk);
+      if (chunk.includes("event: done")) this.doneSnapshot = readRecords();
       if (disconnect && chunks.length === 1) this.destroyed = true;
       return true;
     },
@@ -134,6 +180,7 @@ function createEvent(id: string, disconnect = false) {
       this.ended = true;
       return this;
     },
+    doneSnapshot: undefined as Promise<ProductRecord[]> | undefined,
   };
   return {
     chunks,
