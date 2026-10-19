@@ -4,6 +4,7 @@ import { apiFetch } from '../utils/api'
 import {
   AUDIENCES,
   CATEGORIES,
+  MAX_RECORD_IMAGES,
   RecognizeResponseSchema,
   ProductRecordSchema,
   RECOGNIZE_FIELD_NAMES,
@@ -43,6 +44,7 @@ const config = useRuntimeConfig()
 const mockEnabled = computed(() => config.public.visionMock)
 const mockFixture = ref<'tagPrice' | 'noTagPrice' | 'allNull'>('tagPrice')
 const fileInput = ref<HTMLInputElement>()
+const uploadPanel = ref<HTMLElement>()
 const imageQueue = ref<QueuedImage[]>([])
 const customColor = reactive({ name: '', hex: '#B6A895' })
 const result = ref<RecognizeResult>()
@@ -266,9 +268,9 @@ watch(skuCells, (cells) => {
 async function selectFiles(files: FileList | File[]): Promise<void> {
   errorMessage.value = ''
   statusMessage.value = ''
-  const remaining = Math.max(0, 10 - imageQueue.value.length)
+  const remaining = Math.max(0, MAX_RECORD_IMAGES - imageQueue.value.length)
   const selectedFiles = Array.from(files).slice(0, remaining)
-  if (selectedFiles.length < files.length) errorMessage.value = '最多可添加 10 张图片，超出的图片未加入队列。'
+  if (selectedFiles.length < files.length) errorMessage.value = `最多可添加 ${MAX_RECORD_IMAGES} 张图片，超出的图片未加入队列。`
   const added = await Promise.all(selectedFiles.map(async (file): Promise<QueuedImage | undefined> => {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       errorMessage.value = '不支持该格式，请使用 JPG、PNG 或 WebP 图片。'
@@ -526,7 +528,20 @@ async function submitRecord(): Promise<void> {
     currentRecognitionSaved.value = true
     statusMessage.value = '商品记录已保存。'
   } catch (error) {
-    errorMessage.value = readErrorMessage(error)
+    if (readErrorCode(error) === 'E_IMAGE_MISSING') {
+      for (const image of imageQueue.value) {
+        image.uploaded = undefined
+        image.status = 'ready'
+        image.error = undefined
+      }
+      recognizedFileId.value = undefined
+      currentRecognitionSaved.value = false
+      statusMessage.value = ''
+      errorMessage.value = '图片已失效，照片已重置为待上传；点击“重新识别”重新上传后再保存。'
+      uploadPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      errorMessage.value = readErrorMessage(error)
+    }
   } finally {
     saving.value = false
   }
@@ -545,6 +560,19 @@ function readErrorMessage(error: unknown): string {
     if ('message' in error && typeof error.message === 'string') return error.message
   }
   return '操作没有完成，请保留表单内容后重试。'
+}
+
+function readErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const data = 'data' in error ? error.data : undefined
+  if (typeof data === 'object' && data !== null) {
+    if ('code' in data && data.code === 'E_IMAGE_MISSING') return data.code
+    if ('data' in data) {
+      const nested = data.data
+      if (typeof nested === 'object' && nested !== null && 'code' in nested && nested.code === 'E_IMAGE_MISSING') return nested.code
+    }
+  }
+  return undefined
 }
 
 onMounted(() => void refreshRecords())
@@ -574,10 +602,10 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <div class="work-grid">
         <aside class="upload-column">
-          <section class="panel upload-panel">
+          <section ref="uploadPanel" class="panel upload-panel">
             <div class="panel-heading">
               <div><span class="section-index">01</span><h2><img src="/brand/icons/camera.svg" alt="" aria-hidden="true">商品照片</h2></div>
-              <span class="small-count">{{ imageQueue.length }} / 10</span>
+              <span class="small-count">{{ imageQueue.length }} / {{ MAX_RECORD_IMAGES }}</span>
             </div>
 
             <div

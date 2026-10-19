@@ -26,6 +26,7 @@ export const SEASONS = ["春", "夏", "秋", "冬"] as const;
 export const AUDIENCES = ["女", "男", "儿童", "中性"] as const;
 export const SIZES_TOP = ["XS", "S", "M", "L", "XL", "XXL"] as const;
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+export const MAX_RECORD_IMAGES = 5;
 
 export const ColorInfoSchema = z.object({
   name: z.string().min(1).describe("中文颜色名"),

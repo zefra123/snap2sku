@@ -47,6 +47,9 @@ export function apiErrorMessage(statusCode: number, value: unknown): string {
       typeof nested.code === "string"
         ? nested.code
         : statusCodeCode(statusCode);
+    if (code === "E_IMAGE_MISSING") {
+      return `${code}: 图片已失效，请重新选择照片并重新识别后再提交`;
+    }
     const message =
       typeof nested.message === "string"
         ? nested.message

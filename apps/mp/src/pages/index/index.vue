@@ -234,11 +234,15 @@ async function submitRecord(): Promise<void> {
     saved.value = true;
     message.value = "记录已保存，可在 Web 端记录页查看";
   } catch (error) {
-    showError(
+    const errorText =
       error instanceof Error
         ? error.message
-        : "E_VALIDATION: 记录未保存，请检查填写内容",
-    );
+        : "E_VALIDATION: 记录未保存，请检查填写内容";
+    if (errorText.startsWith("E_IMAGE_MISSING:")) {
+      fileId.value = "";
+      saved.value = false;
+    }
+    showError(errorText);
   } finally {
     busy.value = false;
   }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RecognizeResultSchema } from "@scope/shared/schema";
-import { buildAccessHeaders, parseRecognizeResponse } from "./api";
+import {
+  apiErrorMessage,
+  buildAccessHeaders,
+  parseRecognizeResponse,
+} from "./api";
 
 describe("mini program API contracts", () => {
   it("validates recognize responses with the shared schema", () => {
@@ -33,5 +37,16 @@ describe("mini program API contracts", () => {
     expect(buildAccessHeaders("demo-code")).toEqual({
       "x-access-code": "demo-code",
     });
+  });
+
+  it("maps missing uploaded images to an actionable error", () => {
+    expect(
+      apiErrorMessage(400, {
+        data: {
+          code: "E_IMAGE_MISSING",
+          message: "有图片已失效，请重新上传后再提交",
+        },
+      }),
+    ).toBe("E_IMAGE_MISSING: 图片已失效，请重新选择照片并重新识别后再提交");
   });
 });
