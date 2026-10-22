@@ -9,6 +9,7 @@ apps/mp/src/styles/tokens.wxss
 .env
 .env.*
 !.env.example
+/deploy/env
 
 # 运行期产生的本地数据（记录 JSON 与上传图片）
 data/
