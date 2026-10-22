@@ -3,6 +3,7 @@ import { checkAccessCodeRequest } from "./access-code";
 import {
   assertProductionAccessCodeConfigured,
   assertProductionDataDirectoryConfigured,
+  assertProductionDataDirectoryExists,
   assertProductionUploadSigningSecretConfigured,
 } from "../utils/access-code";
 
@@ -44,6 +45,24 @@ describe("access code request policy", () => {
     ).not.toThrow();
     expect(() =>
       assertProductionDataDirectoryConfigured(true, "C:/snap2sku/data"),
+    ).not.toThrow();
+  });
+
+  it("refuses to start in production when the data directory is missing", () => {
+    // 目录写错时自动创建 → 静默启用空账本 → 熔断失效且零报警，必须拒绝启动
+    expect(() =>
+      assertProductionDataDirectoryExists(true, "/opt/snap2sku/dat", false),
+    ).toThrow("拒绝启动");
+    expect(() =>
+      assertProductionDataDirectoryExists(true, "/opt/snap2sku/dat", false),
+    ).toThrow("不会自动创建数据目录");
+    // 目录存在则放行
+    expect(() =>
+      assertProductionDataDirectoryExists(true, "/opt/snap2sku/data", true),
+    ).not.toThrow();
+    // 本地开发仍然允许自动创建
+    expect(() =>
+      assertProductionDataDirectoryExists(false, "C:/tmp/snap2sku", false),
     ).not.toThrow();
   });
 

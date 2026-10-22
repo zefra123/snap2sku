@@ -32,6 +32,42 @@ const databaseFileName = "records.sqlite";
 const legacyFileName = "records.json";
 const backupFileName = "records.json.bak";
 
+export interface DataDirectoryProbe {
+  directory: string;
+  exists: boolean;
+  databaseExists: boolean;
+}
+
+/**
+ * 只读探测，不创建任何东西。启动时先探测再初始化，
+ * 才能区分「沿用了已有账本」和「刚建了一份空账本」。
+ */
+export function probeDataDirectory(configured?: unknown): DataDirectoryProbe {
+  const directory = resolveDataDirectory(configured);
+  return {
+    directory,
+    exists: existsSync(directory),
+    databaseExists: existsSync(join(directory, databaseFileName)),
+  };
+}
+
+/**
+ * Git Bash 风格路径（/c/Users/...）在 Windows 上会被 resolve 成 C:\c\Users\...
+ * 这是「账本写到别处」最隐蔽的一种成因，启动时直接告警。
+ */
+export function windowsRootedPathWarning(
+  platform: NodeJS.Platform,
+  configured: string,
+  resolvedDirectory: string,
+): string | undefined {
+  const trimmed = configured.trim();
+  if (platform !== "win32" || !trimmed.startsWith("/")) return undefined;
+  return (
+    `NUXT_DATA_DIR 以 / 开头（${trimmed}），在 Windows 上会被解析为盘符根路径 ` +
+    `${resolvedDirectory}；请改用 C:/... 形式`
+  );
+}
+
 export type ModelSpendKind = "recognize" | "describe" | "describeVariants";
 export type ModelSpendStatus = "reserved" | "settled" | "released" | "unknown";
 
@@ -307,6 +343,14 @@ export function markModelSpendUnknown(id: string, reason: string): void {
     .run(reason, id);
   if (updated.changes !== 1)
     throw new Error("只能将 reserved model spend 标为 unknown");
+}
+
+/** 启动日志用：证明服务读到的是哪一份账本。 */
+export function recordCount(): number {
+  const row = getDatabase()
+    .prepare("SELECT COUNT(*) AS total FROM records")
+    .get() as { total: number };
+  return row.total;
 }
 
 export function modelSpendSummary(): ModelSpendSummary {

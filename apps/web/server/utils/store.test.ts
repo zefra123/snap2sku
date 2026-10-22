@@ -22,6 +22,9 @@ import {
   saveGeneratedDescriptionVariants,
   updateRecordDetails,
   resolveDataDirectory,
+  probeDataDirectory,
+  recordCount,
+  windowsRootedPathWarning,
 } from "./store";
 
 const temporaryDirectories: string[] = [];
@@ -42,6 +45,52 @@ describe("SQLite store", () => {
     expect(resolveDataDirectory("")).toBe(resolveDataDirectory());
     expect(resolveDataDirectory(undefined)).toBe(resolveDataDirectory());
     expect(resolveDataDirectory("   ")).toBe(resolveDataDirectory());
+  });
+
+  it("区分新建账本与沿用已有账本", () => {
+    const root = createTemporaryDirectory();
+    const fresh = join(root, "data");
+
+    // 初始化前：目录和库都不存在 —— 生产环境据此拒绝启动
+    expect(probeDataDirectory(fresh)).toMatchObject({
+      directory: resolve(fresh),
+      exists: false,
+      databaseExists: false,
+    });
+
+    initializeStore(fresh);
+
+    // 初始化后：能证明读到的是这一份账本，而不是别处
+    expect(probeDataDirectory(fresh)).toMatchObject({
+      exists: true,
+      databaseExists: true,
+    });
+    expect(recordCount()).toBe(0);
+  });
+
+  it("告警 Windows 上以 / 开头的数据目录", () => {
+    const warning = windowsRootedPathWarning(
+      "win32",
+      "/c/Users/me/snap2sku/data",
+      "C:\\c\\Users\\me\\snap2sku\\data",
+    );
+    expect(warning).toContain("盘符根路径");
+    expect(warning).toContain("C:/...");
+    // 正确写法与 Linux 平台都不告警
+    expect(
+      windowsRootedPathWarning(
+        "win32",
+        "C:/snap2sku/data",
+        "C:\\snap2sku\\data",
+      ),
+    ).toBeUndefined();
+    expect(
+      windowsRootedPathWarning(
+        "linux",
+        "/opt/snap2sku/data",
+        "/opt/snap2sku/data",
+      ),
+    ).toBeUndefined();
   });
 
   it("为现有 SQLite 数据库迁移详情版本列", async () => {

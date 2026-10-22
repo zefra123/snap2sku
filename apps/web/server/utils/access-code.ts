@@ -57,3 +57,22 @@ export function assertProductionDataDirectoryConfigured(
     );
   }
 }
+
+/**
+ * 生产环境要求 NUXT_DATA_DIR 指向的目录已存在。
+ * 自动创建会把「路径写错」变成「静默启用一份空账本」：
+ * 服务照常启动、容器健康检查 200、前端显示累计费用 ¥0，¥200 熔断彻底失效且零报警。
+ * 目录交给部署脚本 mkdir -p 创建，应用只负责使用。
+ */
+export function assertProductionDataDirectoryExists(
+  isProduction: boolean,
+  directory: string,
+  directoryExists: boolean,
+): void {
+  if (!isProduction || directoryExists) return;
+  throw new Error(
+    `数据目录 ${directory} 不存在，拒绝启动。` +
+      "生产环境不会自动创建数据目录：请先创建目录并挂载持久化磁盘，" +
+      "再检查 NUXT_DATA_DIR 是否写错（Windows 请用 C:/... 而不是 Git Bash 的 /c/...）",
+  );
+}
