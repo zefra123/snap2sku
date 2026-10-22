@@ -396,7 +396,7 @@ function consumeVariantEvents(
         };
       }
     } else if (eventName === "error") throw new Error(data);
-    else if (eventName === "result") {
+    else if (eventName === "generated") {
       const payload: unknown = JSON.parse(data);
       if (typeof payload === "object" && payload !== null) {
         if (
@@ -459,7 +459,7 @@ async function consumeDescriptionEvents(
       }
     } else if (eventName === "error") {
       throw new Error(data);
-    } else if (eventName === "result") {
+    } else if (eventName === "generated") {
       const payload: unknown = JSON.parse(data);
       if (typeof payload === "object" && payload !== null) {
         if ("confidence" in payload) {
@@ -622,7 +622,7 @@ async function saveEdit(record: ProductRecord): Promise<void> {
     JSON.stringify(DescriptionSourceSchema.parse(record.recognize)) !==
     JSON.stringify(DescriptionSourceSchema.parse(recognize.data));
   try {
-    const updated = await apiFetch<ProductRecord>(
+    const updated = await apiFetch<ProductRecordWithImageUrls>(
       `/api/records/${encodeURIComponent(record.id)}`,
       {
         method: "PUT",
@@ -634,7 +634,7 @@ async function saveEdit(record: ProductRecord): Promise<void> {
       },
     );
     records.value = records.value.map((item) =>
-      item.id === record.id ? { ...updated, imageUrls: item.imageUrls } : item,
+      item.id === record.id ? updated : item,
     );
     if (sourceChanged) {
       generationControllers.value[record.id]?.abort();

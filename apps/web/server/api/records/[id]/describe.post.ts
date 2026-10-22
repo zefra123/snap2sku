@@ -87,8 +87,8 @@ export async function handleRecordDescription(
       result.description,
       generated.costEstimate,
     );
-  } catch {
-    // 持久化失败必须通过已开始的 SSE 流通知客户端。
+  } catch (error) {
+    console.error("[describe] 保存描述失败", error);
   }
   if (!saved) {
     writeStreamError(event, "E_WRITE_FAILED", "描述保存失败，请稍后重试");
@@ -134,6 +134,7 @@ export async function writeDescriptionStream(
   response.setHeader("Cache-Control", "no-cache, no-transform");
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
+  response.setHeader("X-Content-Type-Options", "nosniff");
   response.flushHeaders();
 
   for (const text of splitText(result.description, MOCK_CHUNK_SIZE)) {
@@ -144,7 +145,7 @@ export async function writeDescriptionStream(
 
   if (response.destroyed) return false;
   response.write(
-    `event: result\ndata: ${JSON.stringify({ confidence: result.confidence, ...cost })}\n\n`,
+    `event: generated\ndata: ${JSON.stringify({ confidence: result.confidence, ...cost })}\n\n`,
   );
   return true;
 }

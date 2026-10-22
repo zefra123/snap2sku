@@ -6,6 +6,7 @@ import {
   recentSettledSpendCny,
   reconcileModelSpend,
   releaseModelSpend,
+  extendModelSpend,
   reserveModelSpend,
   settleModelSpend,
   type ModelSpendKind,
@@ -15,6 +16,7 @@ import type { ModelUsage } from "@scope/shared/schema";
 export interface ModelSpendReservation {
   id: string;
   reservedCny: number;
+  capCny: number;
   priceConfigured: boolean;
 }
 
@@ -92,6 +94,7 @@ export function reserveModelCall(
   return {
     id: reservation.id,
     reservedCny: reservation.reservedCny,
+    capCny,
     priceConfigured: priceIsConfigured(config),
   };
 }
@@ -100,12 +103,20 @@ export function settleModelCall(
   reservation: ModelSpendReservation,
   usage: ModelUsage,
   estimatedCostCny: number,
+  requestCount = 1,
 ): number {
   const usageAvailable = usage.total_tokens > 0;
-  const estimated = !reservation.priceConfigured || !usageAvailable;
-  const costCny = estimated
-    ? Math.max(estimatedCostCny, reservation.reservedCny)
-    : estimatedCostCny;
+  const floorCny = reservation.reservedCny * Math.max(1, requestCount);
+  const costCny = Math.max(estimatedCostCny, floorCny);
+  const estimated =
+    !reservation.priceConfigured ||
+    !usageAvailable ||
+    estimatedCostCny < floorCny;
+  if (estimated) {
+    console.warn(
+      `[trial-budget] 第 ${reservation.id} 笔按估算记账：请求 ${requestCount} 次，记 ¥${costCny}`,
+    );
+  }
   if (costCny > reservation.reservedCny) {
     console.warn(
       `[trial-budget] 结算金额 ${costCny} 高于预占 ${reservation.reservedCny}，实际费用可能超过软熔断目标`,
@@ -127,20 +138,36 @@ export async function runReservedModelCall<
   reservation: ModelSpendReservation,
   request: (markRequestStarted: () => void) => Promise<T>,
 ): Promise<T> {
-  let requestStarted = false;
+  let requestCount = 0;
   try {
     const generated = await request(() => {
-      requestStarted = true;
+      requestCount += 1;
+      if (
+        requestCount > 1 &&
+        !extendModelSpend(
+          reservation.id,
+          reservation.reservedCny,
+          reservation.capCny,
+        )
+      ) {
+        failApi(402, "E_BUDGET_EXHAUSTED", "试用额度已用完，无法重试模型请求");
+      }
     });
+    if (requestCount > 1) {
+      console.warn(
+        `[trial-budget] 模型调用 ${reservation.id} 发出 ${requestCount} 次 HTTP 请求，已逐次追加预占`,
+      );
+    }
     const settledCost = settleModelCall(
       reservation,
       generated.usage,
       generated.costEstimate,
+      requestCount,
     );
     return { ...generated, costEstimate: settledCost };
   } catch (error) {
     try {
-      if (requestStarted) {
+      if (requestCount > 0) {
         markModelCallUnknown(reservation.id);
       } else {
         releaseModelCallBeforeRequest(

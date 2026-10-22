@@ -52,7 +52,7 @@ describe("POST /api/records/:id/describe", () => {
     );
     expect(textFragments.join("")).toBe(description);
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.88,"overall":0.88},"descriptionCostEstimate":0,"costEstimate":0.012}',
+      'event: generated\ndata: {"confidence":{"description":0.88,"overall":0.88},"descriptionCostEstimate":0,"costEstimate":0.012}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.statusCode).toBe(200);
@@ -104,7 +104,7 @@ describe("POST /api/records/:id/describe", () => {
     const stream = chunks.join("");
     expect(stream).toContain("event: chunk\ndata:");
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.6,"overall":0.6},"descriptionCostEstimate":0.0045,"costEstimate":0.0165}',
+      'event: generated\ndata: {"confidence":{"description":0.6,"overall":0.6},"descriptionCostEstimate":0.0045,"costEstimate":0.0165}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);

@@ -22,6 +22,12 @@ const defaultDataDirectory =
   basename(dirname(workingDirectory)) === "apps"
     ? resolve(workingDirectory, "../../data")
     : resolve(workingDirectory, "data");
+
+export function resolveDataDirectory(configured?: unknown): string {
+  const explicit = String(configured ?? "").trim();
+  return explicit ? resolve(explicit) : defaultDataDirectory;
+}
+
 const databaseFileName = "records.sqlite";
 const legacyFileName = "records.json";
 const backupFileName = "records.json.bak";
@@ -195,6 +201,50 @@ export function reserveModelSpend(input: {
       );
     connection.exec("COMMIT");
     return { id, reservedCny: input.reserveCny, usedCny };
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function extendModelSpend(
+  id: string,
+  extraCny: number,
+  capCny: number,
+): boolean {
+  if (!Number.isFinite(extraCny) || extraCny <= 0) {
+    throw new Error("model spend extension 必须是有限正数");
+  }
+  if (!Number.isFinite(capCny) || capCny <= 0) {
+    throw new Error("trial budget cap 必须是有限正数");
+  }
+
+  const connection = getDatabase();
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    const totals = connection
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN status = 'settled' THEN cost_cny ELSE 0 END), 0) AS spent_cny,
+           COALESCE(SUM(CASE WHEN status IN ('reserved', 'unknown') THEN reserved_cny ELSE 0 END), 0) AS reserved_cny
+         FROM model_spend`,
+      )
+      .get() as { spent_cny: number; reserved_cny: number };
+    if (totals.spent_cny + totals.reserved_cny + extraCny > capCny + 1e-9) {
+      connection.exec("ROLLBACK");
+      return false;
+    }
+
+    const updated = connection
+      .prepare(
+        `UPDATE model_spend
+         SET reserved_cny = reserved_cny + ?,
+             note = CASE WHEN note IS NULL OR note = '' THEN '追加预占 1 次' ELSE note || '；追加预占 1 次' END
+         WHERE id = ? AND status = 'reserved'`,
+      )
+      .run(extraCny, id);
+    connection.exec(updated.changes === 1 ? "COMMIT" : "ROLLBACK");
+    return updated.changes === 1;
   } catch (error) {
     connection.exec("ROLLBACK");
     throw error;

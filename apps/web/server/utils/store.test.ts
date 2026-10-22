@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolve } from "node:path";
 import type { ProductRecord } from "@scope/shared/schema";
 import { DescriptionSourceSchema } from "@scope/shared/schema";
 import {
@@ -20,6 +21,7 @@ import {
   saveGeneratedDescription,
   saveGeneratedDescriptionVariants,
   updateRecordDetails,
+  resolveDataDirectory,
 } from "./store";
 
 const temporaryDirectories: string[] = [];
@@ -32,6 +34,16 @@ afterEach(() => {
 });
 
 describe("SQLite store", () => {
+  it("解析显式数据目录并在未配置时回退到默认目录", () => {
+    expect(resolveDataDirectory("/opt/snap2sku/data")).toBe(
+      resolve("/opt/snap2sku/data"),
+    );
+    expect(resolveDataDirectory("data")).toBe(resolve("data"));
+    expect(resolveDataDirectory("")).toBe(resolveDataDirectory());
+    expect(resolveDataDirectory(undefined)).toBe(resolveDataDirectory());
+    expect(resolveDataDirectory("   ")).toBe(resolveDataDirectory());
+  });
+
   it("为现有 SQLite 数据库迁移详情版本列", async () => {
     const directory = createTemporaryDirectory();
     const database = new Database(join(directory, "records.sqlite"));

@@ -68,6 +68,7 @@ export async function handleDescriptionVariants(
   response.setHeader("Cache-Control", "no-cache, no-transform");
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
+  response.setHeader("X-Content-Type-Options", "nosniff");
   response.flushHeaders();
 
   for (const platform of PLATFORMS) {
@@ -82,7 +83,7 @@ export async function handleDescriptionVariants(
     }
     if (response.destroyed) return;
     response.write(
-      `event: result\ndata: ${JSON.stringify({ platform, platformLabel: PLATFORM_LABELS[platform], confidence: result.confidence, descriptionCostEstimate: platform === "shipinhao" ? generated.costEstimate : 0, costEstimate: record.costEstimate + (platform === "shipinhao" ? generated.costEstimate : 0) })}\n\n`,
+      `event: generated\ndata: ${JSON.stringify({ platform, platformLabel: PLATFORM_LABELS[platform], confidence: result.confidence, descriptionCostEstimate: platform === "shipinhao" ? generated.costEstimate : 0, costEstimate: record.costEstimate + (platform === "shipinhao" ? generated.costEstimate : 0) })}\n\n`,
     );
   }
   if (response.destroyed) return;

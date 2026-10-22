@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkAccessCodeRequest } from "./access-code";
 import {
   assertProductionAccessCodeConfigured,
+  assertProductionDataDirectoryConfigured,
   assertProductionUploadSigningSecretConfigured,
 } from "../utils/access-code";
 
@@ -31,6 +32,18 @@ describe("access code request policy", () => {
     ).not.toThrow();
     expect(() =>
       assertProductionUploadSigningSecretConfigured(false, ""),
+    ).not.toThrow();
+  });
+
+  it("requires an explicit data directory in production", () => {
+    expect(() => assertProductionDataDirectoryConfigured(true, " ")).toThrow(
+      "必须设置 NUXT_DATA_DIR，否则拒绝启动",
+    );
+    expect(() =>
+      assertProductionDataDirectoryConfigured(false, ""),
+    ).not.toThrow();
+    expect(() =>
+      assertProductionDataDirectoryConfigured(true, "C:/snap2sku/data"),
     ).not.toThrow();
   });
 
@@ -83,6 +96,36 @@ describe("access code request policy", () => {
     expect(() =>
       checkAccessCodeRequest("GET", "/api/records/abc", "", "", true),
     ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(checkAccessCodeRequest("GET", "/api/health", "", "", true)).toBe(
+      "bypassed",
+    );
+    expect(
+      checkAccessCodeRequest("GET", "/api/uploads/file", "", "", true),
+    ).toBe("bypassed");
+  });
+
+  it("protects runtime-info reads while keeping health and uploads public", () => {
+    expect(() =>
+      checkAccessCodeRequest("GET", "/api/runtime-info", "", "", true),
+    ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(() =>
+      checkAccessCodeRequest(
+        "GET",
+        "/api/runtime-info",
+        "secret",
+        "nope",
+        true,
+      ),
+    ).toThrow("E_ACCESS_CODE_REQUIRED");
+    expect(
+      checkAccessCodeRequest(
+        "GET",
+        "/api/runtime-info",
+        "secret",
+        "secret",
+        true,
+      ),
+    ).toBe("validated");
     expect(checkAccessCodeRequest("GET", "/api/health", "", "", true)).toBe(
       "bypassed",
     );

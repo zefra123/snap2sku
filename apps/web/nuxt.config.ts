@@ -26,6 +26,7 @@ export default defineNuxtConfig({
   },
   css: ["~/assets/css/tokens.css"],
   runtimeConfig: {
+    dataDir: "",
     accessCode: "",
     uploadSigningSecret: "",
     uploadSigningSecretPrevious: "",

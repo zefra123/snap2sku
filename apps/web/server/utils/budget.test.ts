@@ -7,9 +7,11 @@ import {
   estimateReserveCny,
   priceIsConfigured,
   runReservedModelCall,
+  settleModelCall,
 } from "./budget";
 import {
   closeStore,
+  extendModelSpend,
   initializeStore,
   markModelSpendUnknown,
   modelSpendSummary,
@@ -118,6 +120,80 @@ describe("trial model spend ledger", () => {
     expect(modelSpendSummary().spentCny).toBeGreaterThan(0);
   });
 
+  it("does not extend a reservation when the remaining cap cannot cover it", () => {
+    initializeStore(createDirectory());
+    const reservation = reserve({ capCny: 0.08, reserveCny: 0.05 });
+
+    expect(extendModelSpend(reservation.id, 0.05, 0.08)).toBe(false);
+    expect(modelSpendSummary().reservedCny).toBe(0.05);
+  });
+
+  it("extends a reservation when the remaining cap covers another request", () => {
+    initializeStore(createDirectory());
+    const reservation = reserve({ capCny: 0.1, reserveCny: 0.05 });
+
+    expect(extendModelSpend(reservation.id, 0.05, 0.1)).toBe(true);
+    expect(modelSpendSummary().reservedCny).toBe(0.1);
+  });
+
+  it("settles missing usage against the reserve floor for every HTTP request", () => {
+    initializeStore(createDirectory());
+    const reservation = reserve({ capCny: 1, reserveCny: 0.05 });
+
+    expect(
+      settleModelCall(
+        reservation,
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        0.004,
+        3,
+      ),
+    ).toBeCloseTo(0.15);
+    expect(modelSpendSummary().spentCny).toBeCloseTo(0.15);
+  });
+
+  it("blocks a second 429 retry before issuing its HTTP request", async () => {
+    initializeStore(createDirectory());
+    vi.stubGlobal("createError", createError);
+    vi.stubGlobal("useRuntimeConfig", () => ({
+      visionMock: "0",
+      visionApiKey: "test-key",
+      visionModel: "glm-4v-flash",
+      visionBaseUrl: "http://127.0.0.1:4000/v4/chat/completions",
+      visionInputPricePerMillion: 2,
+      visionOutputPricePerMillion: 8,
+      trialBudgetCny: 0.08,
+      trialReserveCny: 0.05,
+      trialId: "budget-retry-test",
+    }));
+    const fetchStub = vi.fn(async () => new Response("{}", { status: 429 }));
+    vi.stubGlobal("fetch", fetchStub);
+
+    await expect(
+      describeProduct(
+        {
+          category: "上衣",
+          colors: [{ name: "黑色", hex: "#000000" }],
+          style: "休闲",
+          seasons: ["夏"],
+          audience: "女",
+          fabric: null,
+          tagPrice: null,
+          item_name: "黑色休闲短袖上衣",
+        },
+        { context: { params: { id: "retry-record" } } } as unknown as H3Event,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 402,
+      data: { code: "E_BUDGET_EXHAUSTED" },
+    });
+
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(modelSpendSummary()).toMatchObject({
+      reservedCny: 0.05,
+      pendingReconcile: 1,
+    });
+  });
+
   it("sums three settled calls independently of records", () => {
     initializeStore(createDirectory());
     for (const costCny of [0.01, 0.02, 0.03]) {
@@ -136,12 +212,12 @@ describe("trial model spend ledger", () => {
     });
   });
 
-  it("atomically allows exactly the reservations that fit the cap", async () => {
+  it("只允许恰好放得下的预占次数", () => {
     initializeStore(createDirectory());
-    const reservations = await Promise.all(
-      Array.from({ length: 5 }, async () =>
-        tryReserve({ capCny: 0.15, reserveCny: 0.05 }),
-      ),
+    // 注意：这不是并发测试。better-sqlite3 全同步，Promise.all 中没有真正的 await。
+    // 真正的原子性由 reserveModelSpend 内部无 await + BEGIN IMMEDIATE 保证。
+    const reservations = Array.from({ length: 5 }, () =>
+      tryReserve({ capCny: 0.15, reserveCny: 0.05 }),
     );
     const accepted = reservations.filter(
       (reservation) => reservation !== undefined,
@@ -342,7 +418,7 @@ function createDirectory(): string {
 function reserve(input: { capCny: number; reserveCny: number }) {
   const reservation = tryReserve(input);
   if (!reservation) throw new Error("预期有可用额度");
-  return { ...reservation, priceConfigured: true };
+  return { ...reservation, capCny: input.capCny, priceConfigured: true };
 }
 
 function tryReserve(input: { capCny: number; reserveCny: number }) {

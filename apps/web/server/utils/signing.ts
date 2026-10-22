@@ -8,7 +8,12 @@ export function signUploadUrl(
   secret: string,
   nowMs = Date.now(),
 ): string {
-  if (!secret) return `/api/uploads/${encodeURIComponent(fileId)}`;
+  if (!secret) {
+    console.warn(
+      "[signing] NUXT_UPLOAD_SIGNING_SECRET 未配置，签名 URL 降级为无签名路径（仅允许开发环境）",
+    );
+    return `/api/uploads/${encodeURIComponent(fileId)}`;
+  }
   if (
     !Number.isSafeInteger(ttlSec) ||
     ttlSec < 1 ||

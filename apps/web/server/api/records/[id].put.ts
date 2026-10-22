@@ -1,6 +1,7 @@
 import { RecognizeResultSchema, SKUItemSchema } from "@scope/shared/schema";
 import { z } from "zod";
 import { failApi } from "../../utils/api-error";
+import { addImageUrls } from "../../utils/image-urls";
 import { updateRecordDetails } from "../../utils/store";
 
 export default defineEventHandler(async (event) => {
@@ -45,5 +46,6 @@ export default defineEventHandler(async (event) => {
   if (updated.kind === "not-found") {
     failApi(404, "E_RECORD_NOT_FOUND", "找不到这条商品记录");
   }
-  return updated.record;
+  const { uploadSigningSecret } = useRuntimeConfig(event);
+  return addImageUrls([updated.record], String(uploadSigningSecret ?? ""))[0];
 });

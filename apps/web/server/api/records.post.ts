@@ -37,7 +37,8 @@ export async function handleCreateRecord(
 
   try {
     await appendRecord(record);
-  } catch {
+  } catch (error) {
+    console.error("[records] 保存记录失败", error);
     failApi(500, "E_WRITE_FAILED", "记录保存失败，请保留表单内容后重试");
   }
 

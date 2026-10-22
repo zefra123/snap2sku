@@ -12,6 +12,7 @@ import {
 // 规则保护：/api/** 下所有非只读请求一律校验访问码。
 // 不用路由白名单——新增可写接口时容易漏登记（P2-1 评审结论）。
 const readOnlyMethods = new Set(["GET", "HEAD", "OPTIONS"]);
+const PROTECTED_READ_PREFIXES = ["/api/records", "/api/runtime-info"];
 
 export default defineEventHandler((event) => {
   const policy = checkAccessCodeRequest(
@@ -34,9 +35,13 @@ export function checkAccessCodeRequest(
   suppliedCode: string,
   isProduction: boolean,
 ): "bypassed" | "disabled" | "validated" {
+  // /api/uploads/* 靠 HMAC 签名 URL 保护（<img src> 无法携带自定义请求头）；
+  // /api/health 是 Nginx / 容器探针入口，且已去除内部状态字段。
   const isProtectedRead =
     method === "GET" &&
-    (pathname === "/api/records" || pathname.startsWith("/api/records/"));
+    PROTECTED_READ_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
   const isProtectedWrite = !readOnlyMethods.has(method) && isApiPath(pathname);
   if (!isProtectedRead && !isProtectedWrite) return "bypassed";
   if (!configuredCode.trim()) {

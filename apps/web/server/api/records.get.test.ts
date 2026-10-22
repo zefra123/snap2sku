@@ -3,7 +3,7 @@ import {
   type ProductRecord,
 } from "@scope/shared/schema";
 import { describe, expect, it } from "vitest";
-import { addImageUrls } from "./records.get";
+import { addImageUrls } from "../utils/image-urls";
 
 const nowMs = 1_700_000_000_000;
 const secret = Buffer.alloc(32, 1).toString("base64url");

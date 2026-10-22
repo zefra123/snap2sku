@@ -58,7 +58,7 @@ describe("POST /api/records/:id/describe-variants", () => {
     });
   });
 
-  it("clamps model confidence in all platform result events to 0.6", async () => {
+  it("clamps model confidence in all platform generated events to 0.6", async () => {
     initializeStore(createDirectory());
     const record = createRecord();
     await appendRecord(record);
@@ -87,7 +87,7 @@ describe("POST /api/records/:id/describe-variants", () => {
     });
 
     const resultEvents = Array.from(
-      chunks.join("").matchAll(/event: result\ndata: (.+)\n\n/g),
+      chunks.join("").matchAll(/event: generated\ndata: (.+)\n\n/g),
       (match) =>
         JSON.parse(match[1]!) as {
           confidence: { description: number; overall: number };

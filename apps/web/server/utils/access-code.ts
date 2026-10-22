@@ -46,3 +46,14 @@ export function assertProductionUploadSigningSecretConfigured(
     );
   }
 }
+
+export function assertProductionDataDirectoryConfigured(
+  isProduction: boolean,
+  dataDir: unknown,
+): void {
+  if (isProduction && !String(dataDir ?? "").trim()) {
+    throw new Error(
+      "必须设置 NUXT_DATA_DIR，否则拒绝启动（避免额度账本随工作目录漂移）",
+    );
+  }
+}
