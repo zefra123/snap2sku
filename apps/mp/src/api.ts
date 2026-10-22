@@ -50,6 +50,9 @@ export function apiErrorMessage(statusCode: number, value: unknown): string {
     if (code === "E_IMAGE_MISSING") {
       return `${code}: 图片已失效，请重新选择照片并重新识别后再提交`;
     }
+    if (code === "E_BUDGET_EXHAUSTED") {
+      return `${code}: 试用额度已用完，请稍后再试`;
+    }
     const message =
       typeof nested.message === "string"
         ? nested.message
@@ -73,6 +76,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function statusCodeCode(statusCode: number): string {
+  if (statusCode === 402) return "E_BUDGET_EXHAUSTED";
   if (statusCode === 401) return "E_ACCESS_CODE_REQUIRED";
   if (statusCode === 413) return "E_SIZE";
   if (statusCode === 415 || statusCode === 400) return "E_FORMAT";

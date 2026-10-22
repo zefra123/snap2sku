@@ -26,6 +26,7 @@ import {
   buildRecognitionUserPrompt,
 } from "@scope/prompts/recognize";
 import { failApi } from "./api-error";
+import { reserveModelCall, runReservedModelCall } from "./budget";
 import { findUploadPath } from "./store";
 
 export type MockFixture = "tagPrice" | "noTagPrice" | "allNull";
@@ -48,6 +49,14 @@ export function parseModelUsage(payload: unknown): ModelUsage {
     total_tokens: isTokenCount(totalTokens)
       ? totalTokens
       : promptTokens + completionTokens,
+  };
+}
+
+function addModelUsage(total: ModelUsage, next: ModelUsage): ModelUsage {
+  return {
+    prompt_tokens: total.prompt_tokens + next.prompt_tokens,
+    completion_tokens: total.completion_tokens + next.completion_tokens,
+    total_tokens: total.total_tokens + next.total_tokens,
   };
 }
 
@@ -301,14 +310,18 @@ export async function recognizeImage(
     : imagePath.endsWith(".webp")
       ? "image/webp"
       : "image/jpeg";
-  return requestVisionModel(
-    image,
-    mime,
-    config.visionApiKey,
-    config.visionModel,
-    config.visionBaseUrl,
-    Number(config.visionInputPricePerMillion),
-    Number(config.visionOutputPricePerMillion),
+  const reservation = reserveModelCall(event, "recognize");
+  return runReservedModelCall(reservation, (markRequestStarted) =>
+    requestVisionModel(
+      image,
+      mime,
+      config.visionApiKey,
+      config.visionModel,
+      config.visionBaseUrl,
+      Number(config.visionInputPricePerMillion),
+      Number(config.visionOutputPricePerMillion),
+      markRequestStarted,
+    ),
   );
 }
 
@@ -335,78 +348,108 @@ export async function describeProduct(
   const endpoint = getChatCompletionsEndpoint(config.visionBaseUrl);
   const inputPricePerMillion = Number(config.visionInputPricePerMillion);
   const outputPricePerMillion = Number(config.visionOutputPricePerMillion);
-  let repairPrompt: string | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchModelResponse(
-      endpoint,
-      config.visionApiKey,
-      config.visionModel,
-      [
-        {
-          role: "system",
-          content: repairPrompt
-            ? `${DESCRIPTION_SYSTEM_PROMPT}\n\n${repairPrompt}`
-            : DESCRIPTION_SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: buildDescriptionUserPrompt(source),
-        },
-      ],
-    );
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      repairPrompt =
-        "上一次响应正文不是有效 JSON。请重新生成，并只返回符合格式的 JSON。";
-      continue;
-    }
-    const content = extractModelText(payload);
-    const decoded = content
-      ? parseModelJson(content)
-      : { success: false as const };
-    if (decoded.success) {
-      const result = DescribeResultSchema.safeParse(decoded.data);
-      if (result.success) {
-        return createDescriptionGeneration(
-          result.data,
-          payload,
-          inputPricePerMillion,
-          outputPricePerMillion,
-        );
+  const reservation = reserveModelCall(
+    event,
+    "describe",
+    typeof event.context.params?.id === "string"
+      ? event.context.params.id
+      : undefined,
+  );
+  return runReservedModelCall(reservation, async (markRequestStarted) => {
+    let repairPrompt: string | undefined;
+    let totalUsage = zeroUsage;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetchModelResponse(
+        endpoint,
+        config.visionApiKey,
+        config.visionModel,
+        [
+          {
+            role: "system",
+            content: repairPrompt
+              ? `${DESCRIPTION_SYSTEM_PROMPT}\n\n${repairPrompt}`
+              : DESCRIPTION_SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: buildDescriptionUserPrompt(source),
+          },
+        ],
+        markRequestStarted,
+      );
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        repairPrompt =
+          "上一次响应正文不是有效 JSON。请重新生成，并只返回符合格式的 JSON。";
+        continue;
       }
-      if (attempt === 1) {
-        const normalized = DescribeResultSchema.safeParse(
-          normalizeGeneratedDescription(decoded.data),
-        );
-        if (normalized.success) {
-          return createDescriptionGeneration(
-            normalized.data,
+      totalUsage = addModelUsage(totalUsage, parseModelUsage(payload));
+      const content = extractModelText(payload);
+      const decoded = content
+        ? parseModelJson(content)
+        : { success: false as const };
+      if (decoded.success) {
+        const result = DescribeResultSchema.safeParse(decoded.data);
+        if (result.success) {
+          const generation = createDescriptionGeneration(
+            result.data,
             payload,
             inputPricePerMillion,
             outputPricePerMillion,
           );
+          return {
+            ...generation,
+            usage: totalUsage,
+            costEstimate: calculateRecognitionCost(
+              totalUsage,
+              inputPricePerMillion,
+              outputPricePerMillion,
+            ),
+          };
         }
+        if (attempt === 1) {
+          const normalized = DescribeResultSchema.safeParse(
+            normalizeGeneratedDescription(decoded.data),
+          );
+          if (normalized.success) {
+            const generation = createDescriptionGeneration(
+              normalized.data,
+              payload,
+              inputPricePerMillion,
+              outputPricePerMillion,
+            );
+            return {
+              ...generation,
+              usage: totalUsage,
+              costEstimate: calculateRecognitionCost(
+                totalUsage,
+                inputPricePerMillion,
+                outputPricePerMillion,
+              ),
+            };
+          }
+        }
+        const description = isRecord(decoded.data)
+          ? decoded.data.description
+          : undefined;
+        const descriptionLength =
+          typeof description === "string" ? Array.from(description).length : 0;
+        repairPrompt = `上一次 JSON 未通过 schema 校验，请修复并只返回 JSON：${result.error.issues
+          .slice(0, 8)
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join(
+            "; ",
+          )}。description 当前${descriptionLength}字，必须为60–100字；请写约80字，并在输出前检查字数。`;
+      } else {
+        repairPrompt =
+          "上一次响应不是有效 JSON。请按系统提示重新生成，只返回一个 JSON 对象，不要输出说明文字或 Markdown。";
       }
-      const description = isRecord(decoded.data)
-        ? decoded.data.description
-        : undefined;
-      const descriptionLength =
-        typeof description === "string" ? Array.from(description).length : 0;
-      repairPrompt = `上一次 JSON 未通过 schema 校验，请修复并只返回 JSON：${result.error.issues
-        .slice(0, 8)
-        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-        .join(
-          "; ",
-        )}。description 当前${descriptionLength}字，必须为60–100字；请写约80字，并在输出前检查字数。`;
-    } else {
-      repairPrompt =
-        "上一次响应不是有效 JSON。请按系统提示重新生成，只返回一个 JSON 对象，不要输出说明文字或 Markdown。";
     }
-  }
 
-  failApi(422, "E_RECOGNIZE_INVALID", "描述模型重试后仍未通过数据校验");
+    failApi(422, "E_RECOGNIZE_INVALID", "描述模型重试后仍未通过数据校验");
+  });
 }
 
 export async function describeProductVariants(
@@ -432,74 +475,104 @@ export async function describeProductVariants(
   const endpoint = getChatCompletionsEndpoint(config.visionBaseUrl);
   const inputPricePerMillion = Number(config.visionInputPricePerMillion);
   const outputPricePerMillion = Number(config.visionOutputPricePerMillion);
-  let repairPrompt: string | undefined;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchModelResponse(
-      endpoint,
-      config.visionApiKey,
-      config.visionModel,
-      [
-        {
-          role: "system",
-          content: repairPrompt
-            ? `${DESCRIPTION_VARIANTS_SYSTEM_PROMPT}\n\n${repairPrompt}`
-            : DESCRIPTION_VARIANTS_SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: buildDescriptionVariantsUserPrompt(source),
-        },
-      ],
-    );
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      repairPrompt =
-        "上一次响应正文不是有效 JSON。请重新生成三种平台文案，并只返回符合格式的 JSON。";
-      continue;
-    }
-
-    const content = extractModelText(payload);
-    const decoded = content
-      ? parseModelJson(content)
-      : { success: false as const };
-    if (!decoded.success) {
-      repairPrompt =
-        "上一次响应不是有效 JSON。请按系统提示重新生成三个平台文案，只返回 JSON 对象，不要输出说明文字或 Markdown。";
-      continue;
-    }
-
-    const parsed = DescriptionVariantsSchema.safeParse(decoded.data);
-    if (parsed.success) {
-      return createDescriptionVariantsGeneration(
-        parsed.data,
-        payload,
-        inputPricePerMillion,
-        outputPricePerMillion,
+  const reservation = reserveModelCall(
+    event,
+    "describeVariants",
+    typeof event.context.params?.id === "string"
+      ? event.context.params.id
+      : undefined,
+  );
+  return runReservedModelCall(reservation, async (markRequestStarted) => {
+    let repairPrompt: string | undefined;
+    let totalUsage = zeroUsage;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetchModelResponse(
+        endpoint,
+        config.visionApiKey,
+        config.visionModel,
+        [
+          {
+            role: "system",
+            content: repairPrompt
+              ? `${DESCRIPTION_VARIANTS_SYSTEM_PROMPT}\n\n${repairPrompt}`
+              : DESCRIPTION_VARIANTS_SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: buildDescriptionVariantsUserPrompt(source),
+          },
+        ],
+        markRequestStarted,
       );
-    }
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        repairPrompt =
+          "上一次响应正文不是有效 JSON。请重新生成三种平台文案，并只返回符合格式的 JSON。";
+        continue;
+      }
+      totalUsage = addModelUsage(totalUsage, parseModelUsage(payload));
 
-    if (attempt === 1) {
-      const normalized = DescriptionVariantsSchema.safeParse(
-        normalizeDescriptionVariants(decoded.data),
-      );
-      if (normalized.success) {
-        return createDescriptionVariantsGeneration(
-          normalized.data,
+      const content = extractModelText(payload);
+      const decoded = content
+        ? parseModelJson(content)
+        : { success: false as const };
+      if (!decoded.success) {
+        repairPrompt =
+          "上一次响应不是有效 JSON。请按系统提示重新生成三个平台文案，只返回 JSON 对象，不要输出说明文字或 Markdown。";
+        continue;
+      }
+
+      const parsed = DescriptionVariantsSchema.safeParse(decoded.data);
+      if (parsed.success) {
+        const generation = createDescriptionVariantsGeneration(
+          parsed.data,
           payload,
           inputPricePerMillion,
           outputPricePerMillion,
         );
+        return {
+          ...generation,
+          usage: totalUsage,
+          costEstimate: calculateRecognitionCost(
+            totalUsage,
+            inputPricePerMillion,
+            outputPricePerMillion,
+          ),
+        };
       }
-    }
-    repairPrompt = `上一次 JSON 未通过 schema 校验，请修复三个平台字段并只返回 JSON：${parsed.error.issues
-      .slice(0, 10)
-      .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-      .join("; ")}`;
-  }
 
-  failApi(422, "E_RECOGNIZE_INVALID", "平台描述模型重试后仍未通过数据校验");
+      if (attempt === 1) {
+        const normalized = DescriptionVariantsSchema.safeParse(
+          normalizeDescriptionVariants(decoded.data),
+        );
+        if (normalized.success) {
+          const generation = createDescriptionVariantsGeneration(
+            normalized.data,
+            payload,
+            inputPricePerMillion,
+            outputPricePerMillion,
+          );
+          return {
+            ...generation,
+            usage: totalUsage,
+            costEstimate: calculateRecognitionCost(
+              totalUsage,
+              inputPricePerMillion,
+              outputPricePerMillion,
+            ),
+          };
+        }
+      }
+      repairPrompt = `上一次 JSON 未通过 schema 校验，请修复三个平台字段并只返回 JSON：${parsed.error.issues
+        .slice(0, 10)
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; ")}`;
+    }
+
+    failApi(422, "E_RECOGNIZE_INVALID", "平台描述模型重试后仍未通过数据校验");
+  });
 }
 
 export function createMockDescriptionVariants(
@@ -581,28 +654,37 @@ async function requestVisionModel(
   baseUrl: string,
   inputPricePerMillion: number,
   outputPricePerMillion: number,
+  markRequestStarted: () => void,
 ): Promise<RecognizeResponse> {
   const imageBase64 = image.toString("base64");
   const endpoint = getChatCompletionsEndpoint(baseUrl);
   let repairPrompt: string | undefined;
+  let totalUsage = zeroUsage;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetchModelResponse(endpoint, apiKey, model, [
-      {
-        role: "system",
-        content: buildRecognitionSystemPrompt(repairPrompt),
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: buildRecognitionUserPrompt(1) },
-          {
-            type: "image_url",
-            image_url: { url: `data:${mime};base64,${imageBase64}` },
-          },
-        ],
-      },
-    ]);
+    const response = await fetchModelResponse(
+      endpoint,
+      apiKey,
+      model,
+      [
+        {
+          role: "system",
+          content: buildRecognitionSystemPrompt(repairPrompt),
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: buildRecognitionUserPrompt(1) },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mime};base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+      markRequestStarted,
+      800,
+    );
 
     let payload: unknown;
     try {
@@ -616,6 +698,7 @@ async function requestVisionModel(
 
     const content = extractModelText(payload);
     const usage = parseModelUsage(payload);
+    totalUsage = addModelUsage(totalUsage, usage);
     if (!content) {
       repairPrompt =
         "上一次响应缺少识别结果文本。请重新识别并仅返回符合格式的 JSON。";
@@ -641,9 +724,9 @@ async function requestVisionModel(
     if (result.success) {
       return {
         result: result.data,
-        usage,
+        usage: totalUsage,
         costEstimate: calculateRecognitionCost(
-          usage,
+          totalUsage,
           inputPricePerMillion,
           outputPricePerMillion,
         ),
@@ -665,11 +748,13 @@ async function fetchModelResponse(
   apiKey: string,
   model: string,
   messages: Array<{ role: "system" | "user"; content: unknown }>,
+  markRequestStarted: () => void,
+  maxTokens = 600,
 ): Promise<Response> {
   let lastStatus: number | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch(endpoint, {
+      const requestInit: RequestInit = {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -678,11 +763,14 @@ async function fetchModelResponse(
         body: JSON.stringify({
           model: model || "glm-4v-flash",
           temperature: 0.1,
+          max_tokens: maxTokens,
           messages,
           response_format: { type: "json_object" },
         }),
         signal: AbortSignal.timeout(20_000),
-      });
+      };
+      markRequestStarted();
+      const response = await fetch(endpoint, requestInit);
       if (response.ok) return response;
       lastStatus = response.status;
       if (

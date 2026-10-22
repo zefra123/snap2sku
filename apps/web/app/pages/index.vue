@@ -40,7 +40,24 @@ interface FieldEdit {
   isCorrection: boolean
 }
 
-const mockEnabled = ref(false)
+interface RuntimeInfo {
+  mock: boolean
+  priceConfigured: boolean
+  spentCny: number
+  reservedCny: number
+  pendingReconcile: number
+  budget: number
+  remainingCny: number
+}
+
+const runtimeInfo = ref<RuntimeInfo | null>(null)
+const mockEnabled = computed(() => runtimeInfo.value?.mock ?? false)
+const budgetExhausted = computed(
+  () => Boolean(runtimeInfo.value && !runtimeInfo.value.mock && runtimeInfo.value.remainingCny <= 0),
+)
+const priceWarning = computed(
+  () => Boolean(runtimeInfo.value && !runtimeInfo.value.mock && !runtimeInfo.value.priceConfigured),
+)
 const mockFixture = ref<'tagPrice' | 'noTagPrice' | 'allNull'>('tagPrice')
 const fileInput = ref<HTMLInputElement>()
 const uploadPanel = ref<HTMLElement>()
@@ -429,6 +446,11 @@ async function recognize(): Promise<void> {
   }
   if (!uploadComplete.value) await uploadImages()
   if (!uploadComplete.value) return
+  await refreshRuntimeInfo()
+  if (budgetExhausted.value) {
+    errorMessage.value = 'E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。'
+    return
+  }
   const firstImage = imageQueue.value[selectedImageIndex.value]
   if (!firstImage?.uploaded) return
   busy.value = true
@@ -465,6 +487,7 @@ async function recognize(): Promise<void> {
   } finally {
     recognizing.value = false
     busy.value = false
+    void refreshRuntimeInfo()
   }
 }
 
@@ -489,10 +512,9 @@ async function refreshRecords(): Promise<void> {
 
 async function refreshRuntimeInfo(): Promise<void> {
   try {
-    const info = await apiFetch<{ mock: boolean }>('/api/runtime-info')
-    mockEnabled.value = info.mock
+    runtimeInfo.value = await apiFetch<RuntimeInfo>('/api/runtime-info')
   } catch {
-    mockEnabled.value = false
+    runtimeInfo.value = null
   }
 }
 
@@ -605,6 +627,9 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <div v-if="errorMessage" class="notice notice--error" role="alert"><span>!</span>{{ errorMessage }}</div>
       <div v-if="statusMessage" class="notice notice--success" role="status"><img class="status-icon" src="/brand/icons/check.svg" alt="" aria-hidden="true">{{ statusMessage }}</div>
+      <div v-if="priceWarning" class="notice notice--budget" role="status">未配置模型单价，费用统计不可信</div>
+      <div v-if="runtimeInfo && !runtimeInfo.mock" class="notice notice--budget" role="status">试用预算剩余 ¥{{ runtimeInfo.remainingCny.toFixed(2) }} / ¥{{ runtimeInfo.budget.toFixed(2) }}</div>
+      <div v-if="budgetExhausted" class="notice notice--error" role="status">试用额度已用完，模型调用暂不可用</div>
       <div v-if="recognitionUsage" class="usage-summary" role="status">
         <strong>本次识别用量</strong>
         <span class="usage-value">{{ recognitionUsage.prompt_tokens }} 输入 / {{ recognitionUsage.completion_tokens }} 输出 / {{ recognitionUsage.total_tokens }} tokens</span>
@@ -691,7 +716,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                   <option value="allNull">信息不足 · 全 null 兜底</option>
                 </select>
               </label>
-              <button class="button button--primary recognize-button" type="button" :disabled="busy || saving" @click="recognize">
+              <button class="button button--primary recognize-button" type="button" :disabled="busy || saving || budgetExhausted" @click="recognize">
                 <img v-if="busy" class="btn-scan-icon" src="/brand/loading-scan.svg" alt="" aria-hidden="true">{{ busy ? '请稍候…' : result ? '重新识别' : '识别商品' }} <span v-if="!busy">↗</span>
               </button>
             </div>
@@ -810,6 +835,7 @@ h1 em { color: var(--c-accent); font-style: normal; }
 .notice > span { font-family: var(--font-mono); font-weight: 700; }
 .notice--error { border-color: color-mix(in oklch, var(--c-error) 35%, var(--c-border)); color: var(--c-error); background: color-mix(in oklch, var(--c-error) 4%, var(--c-surface)); }
 .notice--success { color: var(--c-success); background: color-mix(in oklch, var(--c-success) 4%, var(--c-surface)); }
+.notice--budget { border-color: color-mix(in oklch, var(--c-accent) 35%, var(--c-border)); color: var(--c-accent); background: color-mix(in oklch, var(--c-accent) 8%, var(--c-surface)); }
 .usage-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 9px 13px; border: 1px solid var(--c-border); color: var(--c-ink-2); font-size: var(--font-xs); }
 .usage-summary strong { color: var(--c-ink); font-weight: 600; }
 .usage-value,.usage-cost { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

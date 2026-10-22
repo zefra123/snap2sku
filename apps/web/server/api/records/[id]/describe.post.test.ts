@@ -11,6 +11,7 @@ import {
   initializeStore,
   appendRecord,
   readRecords,
+  modelSpendSummary,
   updateRecordDetails,
 } from "../../../utils/store";
 import { createDescriptionGeneration } from "../../../utils/vision";
@@ -65,6 +66,11 @@ describe("POST /api/records/:id/describe", () => {
     await expect(readRecords()).resolves.toMatchObject([
       { id: record.id, costEstimate: 0.012 },
     ]);
+    expect(modelSpendSummary()).toEqual({
+      spentCny: 0,
+      reservedCny: 0,
+      pendingReconcile: 0,
+    });
   });
 
   it("限制真模型自评置信度后沿用相同 SSE 事件格式输出并保存", async () => {

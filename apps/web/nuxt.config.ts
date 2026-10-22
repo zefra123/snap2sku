@@ -36,6 +36,9 @@ export default defineNuxtConfig({
     visionOutputPricePerMillion: 0,
     // 仅允许运行时注入；此处读取 process.env 会把 Mock 开关烤进构建产物。
     visionMock: "",
+    trialBudgetCny: 200,
+    trialReserveCny: "",
+    trialId: "",
     public: {
       visionMock: false,
     },

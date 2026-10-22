@@ -9,6 +9,7 @@ import {
   initializeStore,
   appendRecord,
   readRecords,
+  modelSpendSummary,
   updateRecordDetails,
 } from "../../../utils/store";
 import { createMockDescriptionVariants } from "../../../utils/vision";
@@ -50,6 +51,11 @@ describe("POST /api/records/:id/describe-variants", () => {
         descriptionVariantsAi: { douyin: {}, xiaohongshu: {}, shipinhao: {} },
       },
     ]);
+    expect(modelSpendSummary()).toEqual({
+      spentCny: 0,
+      reservedCny: 0,
+      pendingReconcile: 0,
+    });
   });
 
   it("clamps model confidence in all platform result events to 0.6", async () => {

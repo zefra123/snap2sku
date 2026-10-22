@@ -49,4 +49,15 @@ describe("mini program API contracts", () => {
       }),
     ).toBe("E_IMAGE_MISSING: 图片已失效，请重新选择照片并重新识别后再提交");
   });
+
+  it("maps an exhausted trial budget to an actionable error", () => {
+    expect(
+      apiErrorMessage(402, {
+        data: {
+          code: "E_BUDGET_EXHAUSTED",
+          message: "试用额度已用完，请稍后再试",
+        },
+      }),
+    ).toBe("E_BUDGET_EXHAUSTED: 试用额度已用完，请稍后再试");
+  });
 });

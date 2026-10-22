@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -25,6 +26,25 @@ const databaseFileName = "records.sqlite";
 const legacyFileName = "records.json";
 const backupFileName = "records.json.bak";
 
+export type ModelSpendKind = "recognize" | "describe" | "describeVariants";
+export type ModelSpendStatus = "reserved" | "settled" | "released" | "unknown";
+
+export interface ModelSpendSummary {
+  spentCny: number;
+  reservedCny: number;
+  pendingReconcile: number;
+}
+
+export interface PendingModelSpend {
+  id: string;
+  createdAt: string;
+  kind: ModelSpendKind;
+  recordId: string | null;
+  trialId: string | null;
+  reservedCny: number;
+  note: string | null;
+}
+
 let database: Database | undefined;
 let activeDataDirectory: string | undefined;
 
@@ -39,6 +59,7 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
 
   mkdirSync(resolvedDirectory, { recursive: true });
   const connection = new Database(join(resolvedDirectory, databaseFileName));
+  connection.pragma("busy_timeout = 5000");
   connection.pragma("journal_mode = WAL");
   connection.pragma("foreign_keys = ON");
   connection.exec(`
@@ -65,6 +86,25 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
       wholesale_price REAL NOT NULL CHECK (wholesale_price > 0),
       PRIMARY KEY (record_id, color, size)
     );
+    CREATE TABLE IF NOT EXISTS model_spend (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      record_id TEXT,
+      trial_id TEXT,
+      mode TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('reserved', 'settled', 'released', 'unknown')),
+      reserved_cny REAL NOT NULL CHECK (reserved_cny > 0),
+      cost_cny REAL NOT NULL DEFAULT 0 CHECK (cost_cny >= 0),
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      estimated INTEGER NOT NULL DEFAULT 1 CHECK (estimated IN (0, 1)),
+      expires_at TEXT,
+      note TEXT
+    );
+    CREATE INDEX IF NOT EXISTS model_spend_status_idx ON model_spend(status);
+    CREATE INDEX IF NOT EXISTS model_spend_kind_status_created_idx
+      ON model_spend(kind, status, created_at DESC);
   `);
   const recordColumns = connection
     .prepare("PRAGMA table_info(records)")
@@ -81,6 +121,13 @@ export function initializeStore(dataDirectory = defaultDataDirectory): void {
       "ALTER TABLE records ADD COLUMN details_version INTEGER NOT NULL DEFAULT 0",
     );
   }
+  connection
+    .prepare(
+      `UPDATE model_spend
+       SET status = 'unknown', note = '服务重启时发现未完成的模型调用，需人工对账'
+       WHERE status = 'reserved'`,
+    )
+    .run();
   database = connection;
   activeDataDirectory = resolvedDirectory;
 
@@ -98,6 +145,194 @@ export function closeStore(): void {
   database?.close();
   database = undefined;
   activeDataDirectory = undefined;
+}
+
+export function reserveModelSpend(input: {
+  kind: ModelSpendKind;
+  recordId?: string;
+  trialId?: string;
+  capCny: number;
+  reserveCny: number;
+}): { id: string; reservedCny: number; usedCny: number } | undefined {
+  if (!Number.isFinite(input.capCny) || input.capCny <= 0) {
+    throw new Error("trial budget cap 必须是有限正数");
+  }
+  if (!Number.isFinite(input.reserveCny) || input.reserveCny <= 0) {
+    throw new Error("model spend reserve 必须是有限正数");
+  }
+
+  const connection = getDatabase();
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    const totals = connection
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN status = 'settled' THEN cost_cny ELSE 0 END), 0) AS spent_cny,
+           COALESCE(SUM(CASE WHEN status IN ('reserved', 'unknown') THEN reserved_cny ELSE 0 END), 0) AS reserved_cny
+         FROM model_spend`,
+      )
+      .get() as { spent_cny: number; reserved_cny: number };
+    const usedCny = totals.spent_cny + totals.reserved_cny;
+    if (usedCny + input.reserveCny > input.capCny + 1e-9) {
+      connection.exec("ROLLBACK");
+      return undefined;
+    }
+
+    const id = randomUUID();
+    connection
+      .prepare(
+        `INSERT INTO model_spend
+          (id, created_at, kind, record_id, trial_id, mode, status, reserved_cny)
+         VALUES (?, ?, ?, ?, ?, 'real', 'reserved', ?)`,
+      )
+      .run(
+        id,
+        new Date().toISOString(),
+        input.kind,
+        input.recordId ?? null,
+        input.trialId ?? null,
+        input.reserveCny,
+      );
+    connection.exec("COMMIT");
+    return { id, reservedCny: input.reserveCny, usedCny };
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function recentSettledSpendCny(kind: ModelSpendKind): number[] {
+  return (
+    getDatabase()
+      .prepare(
+        "SELECT cost_cny FROM model_spend WHERE kind = ? AND status = 'settled' ORDER BY created_at DESC LIMIT 20",
+      )
+      .all(kind) as Array<{ cost_cny: number }>
+  ).map((row) => row.cost_cny);
+}
+
+export function settleModelSpend(
+  id: string,
+  result: {
+    promptTokens: number;
+    completionTokens: number;
+    costCny: number;
+    estimated: boolean;
+    note?: string;
+  },
+): void {
+  const updated = getDatabase()
+    .prepare(
+      `UPDATE model_spend
+       SET status = 'settled', cost_cny = ?, prompt_tokens = ?, completion_tokens = ?, estimated = ?, note = ?
+       WHERE id = ? AND status = 'reserved'`,
+    )
+    .run(
+      result.costCny,
+      result.promptTokens,
+      result.completionTokens,
+      result.estimated ? 1 : 0,
+      result.note ?? null,
+      id,
+    );
+  if (updated.changes !== 1)
+    throw new Error("model spend 不再处于 reserved 状态");
+}
+
+export function releaseModelSpend(id: string, reason: string): void {
+  // 调用方必须能证明尚未发出模型请求；任何请求状态不明都必须标为 unknown。
+  const updated = getDatabase()
+    .prepare(
+      "UPDATE model_spend SET status = 'released', note = ? WHERE id = ? AND status = 'reserved'",
+    )
+    .run(reason, id);
+  if (updated.changes !== 1) throw new Error("只能释放 reserved model spend");
+}
+
+export function markModelSpendUnknown(id: string, reason: string): void {
+  const updated = getDatabase()
+    .prepare(
+      "UPDATE model_spend SET status = 'unknown', note = ? WHERE id = ? AND status = 'reserved'",
+    )
+    .run(reason, id);
+  if (updated.changes !== 1)
+    throw new Error("只能将 reserved model spend 标为 unknown");
+}
+
+export function modelSpendSummary(): ModelSpendSummary {
+  const row = getDatabase()
+    .prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status = 'settled' THEN cost_cny ELSE 0 END), 0) AS spent_cny,
+         COALESCE(SUM(CASE WHEN status IN ('reserved', 'unknown') THEN reserved_cny ELSE 0 END), 0) AS reserved_cny,
+         COALESCE(SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END), 0) AS pending_reconcile
+       FROM model_spend`,
+    )
+    .get() as {
+    spent_cny: number;
+    reserved_cny: number;
+    pending_reconcile: number;
+  };
+  return {
+    spentCny: row.spent_cny,
+    reservedCny: row.reserved_cny,
+    pendingReconcile: row.pending_reconcile,
+  };
+}
+
+export function pendingModelSpends(): PendingModelSpend[] {
+  return (
+    getDatabase()
+      .prepare(
+        `SELECT id, created_at, kind, record_id, trial_id, reserved_cny, note
+       FROM model_spend WHERE status = 'unknown' ORDER BY created_at`,
+      )
+      .all() as Array<{
+      id: string;
+      created_at: string;
+      kind: ModelSpendKind;
+      record_id: string | null;
+      trial_id: string | null;
+      reserved_cny: number;
+      note: string | null;
+    }>
+  ).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    kind: row.kind,
+    recordId: row.record_id,
+    trialId: row.trial_id,
+    reservedCny: row.reserved_cny,
+    note: row.note,
+  }));
+}
+
+export function reconcileModelSpend(
+  id: string,
+  decision: "settled" | "released",
+): boolean {
+  const connection = getDatabase();
+  connection.exec("BEGIN IMMEDIATE");
+  try {
+    const updated = connection
+      .prepare(
+        `UPDATE model_spend
+         SET status = ?, cost_cny = CASE WHEN ? = 'settled' THEN reserved_cny ELSE 0 END,
+             estimated = 1, note = ?
+         WHERE id = ? AND status = 'unknown'`,
+      )
+      .run(
+        decision,
+        decision,
+        `人工对账：${decision === "settled" ? "按预占金额记账" : "确认未计费"}`,
+        id,
+      );
+    connection.exec(updated.changes === 1 ? "COMMIT" : "ROLLBACK");
+    return updated.changes === 1;
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export async function ensureUploadDirectory(): Promise<void> {

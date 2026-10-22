@@ -26,6 +26,29 @@ const totalCostEstimate = computed(() =>
 );
 const loading = ref(true);
 const errorMessage = ref("");
+const runtimeInfo = ref<{
+  mock: boolean;
+  priceConfigured: boolean;
+  spentCny: number;
+  reservedCny: number;
+  pendingReconcile: number;
+  budget: number;
+  remainingCny: number;
+} | null>(null);
+const budgetExhausted = computed(() =>
+  Boolean(
+    runtimeInfo.value &&
+    !runtimeInfo.value.mock &&
+    runtimeInfo.value.remainingCny <= 0,
+  ),
+);
+const priceWarning = computed(() =>
+  Boolean(
+    runtimeInfo.value &&
+    !runtimeInfo.value.mock &&
+    !runtimeInfo.value.priceConfigured,
+  ),
+);
 const expandedIds = ref(new Set<string>());
 const descriptionOutputs = ref<Record<string, string>>({});
 const variantOutputs = ref<
@@ -63,7 +86,10 @@ const recognizeFieldLabels: Record<RecognizeFieldKey, string> = {
   item_name: "商品命名建议",
 };
 
-onMounted(loadRecords);
+onMounted(() => {
+  void loadRecords();
+  void refreshRuntimeInfo();
+});
 
 function formatCost(value: number): string {
   return value.toFixed(6);
@@ -83,7 +109,26 @@ async function loadRecords(): Promise<void> {
   }
 }
 
+async function refreshRuntimeInfo(): Promise<void> {
+  try {
+    runtimeInfo.value =
+      await apiFetch<NonNullable<typeof runtimeInfo.value>>(
+        "/api/runtime-info",
+      );
+  } catch {
+    runtimeInfo.value = null;
+  }
+}
+
 async function generateDescription(record: ProductRecord): Promise<void> {
+  await refreshRuntimeInfo();
+  if (budgetExhausted.value) {
+    descriptionErrors.value = {
+      ...descriptionErrors.value,
+      [record.id]: "E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。",
+    };
+    return;
+  }
   descriptionNotices.value = { ...descriptionNotices.value, [record.id]: "" };
   descriptionOutputs.value = { ...descriptionOutputs.value, [record.id]: "" };
   descriptionErrors.value = { ...descriptionErrors.value, [record.id]: "" };
@@ -189,10 +234,19 @@ async function generateDescription(record: ProductRecord): Promise<void> {
     const next = new Set(generatingIds.value);
     next.delete(record.id);
     generatingIds.value = next;
+    void refreshRuntimeInfo();
   }
 }
 
 async function generateVariants(record: ProductRecord): Promise<void> {
+  await refreshRuntimeInfo();
+  if (budgetExhausted.value) {
+    descriptionErrors.value = {
+      ...descriptionErrors.value,
+      [record.id]: "E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。",
+    };
+    return;
+  }
   descriptionNotices.value = { ...descriptionNotices.value, [record.id]: "" };
   const outputs: Partial<
     Record<"douyin" | "xiaohongshu" | "shipinhao", string>
@@ -294,6 +348,7 @@ async function generateVariants(record: ProductRecord): Promise<void> {
     const next = new Set(generatingIds.value);
     next.delete(record.id);
     generatingIds.value = next;
+    void refreshRuntimeInfo();
   }
 }
 
@@ -449,12 +504,14 @@ function readGenerationError(error: unknown): string {
     try {
       const payload: unknown = JSON.parse(error.message);
       if (typeof payload === "object" && payload !== null) {
-        const code = "code" in payload && typeof payload.code === "string"
-          ? payload.code
-          : "E_WRITE_FAILED";
-        const message = "message" in payload && typeof payload.message === "string"
-          ? payload.message
-          : "描述保存失败，请稍后重试";
+        const code =
+          "code" in payload && typeof payload.code === "string"
+            ? payload.code
+            : "E_WRITE_FAILED";
+        const message =
+          "message" in payload && typeof payload.message === "string"
+            ? payload.message
+            : "描述保存失败，请稍后重试";
         return `${code}：${message}`;
       }
     } catch {
@@ -475,7 +532,11 @@ async function responseErrorMessage(response: Response): Promise<string> {
         "message" in data &&
         typeof data.message === "string"
       ) {
-        return data.message;
+        const code =
+          "code" in data && typeof data.code === "string"
+            ? data.code
+            : undefined;
+        return `${code ? `${code}：` : ""}${data.message}`;
       }
     }
   } catch {
@@ -483,6 +544,8 @@ async function responseErrorMessage(response: Response): Promise<string> {
   }
   if (response.status === 401) return "访问码缺失或不正确，请检查后重试。";
   if (response.status === 404) return "找不到这条商品记录，请刷新页面后重试。";
+  if (response.status === 402)
+    return "E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。";
   return `描述生成失败（HTTP ${response.status}），请稍后重试。`;
 }
 
@@ -707,6 +770,21 @@ function editValue(value: unknown): string {
 
       <p v-if="errorMessage" class="records-alert" role="alert">
         {{ errorMessage }}
+      </p>
+      <p v-if="priceWarning" class="records-budget-warning" role="status">
+        未配置模型单价，费用统计不可信
+      </p>
+      <p
+        v-if="runtimeInfo && !runtimeInfo.mock"
+        class="records-budget-warning"
+        role="status"
+      >
+        试用预算剩余 ¥{{ runtimeInfo.remainingCny.toFixed(2) }} / ¥{{
+          runtimeInfo.budget.toFixed(2)
+        }}
+      </p>
+      <p v-if="budgetExhausted" class="records-alert" role="status">
+        试用额度已用完，模型调用暂不可用
       </p>
       <div v-if="loading" class="records-state" role="status">
         正在读取本地记录…
@@ -938,14 +1016,14 @@ function editValue(value: unknown): string {
                   <button
                     class="describe-button"
                     type="button"
-                    :disabled="generatingIds.has(record.id)"
+                    :disabled="generatingIds.has(record.id) || budgetExhausted"
                     @click="generateDescription(record)"
                   >
                     生成通用描述</button
                   ><button
                     class="describe-button"
                     type="button"
-                    :disabled="generatingIds.has(record.id)"
+                    :disabled="generatingIds.has(record.id) || budgetExhausted"
                     @click="generateVariants(record)"
                   >
                     {{
@@ -1533,6 +1611,13 @@ function editValue(value: unknown): string {
   border-left: 2px solid var(--c-error);
   background: var(--c-surface);
   color: var(--c-error);
+  font-size: var(--font-xs);
+}
+.records-budget-warning {
+  padding: 10px 12px;
+  border-left: 2px solid var(--c-accent);
+  background: color-mix(in oklch, var(--c-accent) 8%, var(--c-surface));
+  color: var(--c-accent);
   font-size: var(--font-xs);
 }
 .records-footer {
