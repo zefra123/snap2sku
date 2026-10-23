@@ -14,6 +14,10 @@ Environment=PORT=3000
 # 必须先由部署人员创建 /var/lib/snap2sku；生产服务不会自动创建数据目录。
 ExecStartPre=/usr/bin/test -d /var/lib/snap2sku
 # 不要把 NUXT_DATA_DIR 指向仓库内的 data/ 目录；该目录被 gitignore，且可能被误删。
+# ExecStart 里的 node 路径必须换成服务器上的真实绝对路径（执行 command -v node 查看）。
+# 常见位置：发行版包 /usr/bin/node，官方压缩包或源码安装 /usr/local/bin/node。
+# nvm 安装的 node 位于用户家目录下，system 用户（shell 为 nologin）读不到，不要用它。
+# 路径不对会报 status=203/EXEC。
 ExecStart=/usr/bin/node /opt/snap2sku/current/apps/web/.output/server/index.mjs
 Restart=always
 RestartSec=5
