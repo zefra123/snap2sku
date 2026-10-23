@@ -1,0 +1,8 @@
+[1/4] Build with NUXT_VISION_MOCK=1
+PASS build exitCode=0
+[2/4] Start built server with NUXT_VISION_MOCK=0
+[3/4] Call recognize API through local model stub
+PASS runtime-info.mock=false
+PASS stubRequests=1
+PASS result matches stub
+PASS costEstimate=0.0028

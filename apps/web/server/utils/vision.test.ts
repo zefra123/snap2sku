@@ -11,12 +11,20 @@ import {
   createMockDescriptionVariants,
   createMockRecognizeResponse,
   getMockRecognizeResult,
+  isVisionMockEnabled,
   normalizeGeneratedDescription,
   normalizeRecognizeResult,
   parseModelUsage,
 } from "./vision";
 
 describe("visual adapter mock fixtures", () => {
+  it("uses only the private runtime mock setting", () => {
+    expect(
+      isVisionMockEnabled({ visionMock: "0", public: { visionMock: true } }),
+    ).toBe(false);
+    expect(isVisionMockEnabled({ visionMock: "1" })).toBe(true);
+  });
+
   it("creates three schema-valid mock platform variants with distinct copies", () => {
     const variants = createMockDescriptionVariants({
       category: "上衣",

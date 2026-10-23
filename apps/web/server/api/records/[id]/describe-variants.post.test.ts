@@ -9,6 +9,8 @@ import {
   initializeStore,
   appendRecord,
   readRecords,
+  modelSpendSummary,
+  updateRecordDetails,
 } from "../../../utils/store";
 import { createMockDescriptionVariants } from "../../../utils/vision";
 import { handleDescriptionVariants } from "./describe-variants.post";
@@ -37,15 +39,26 @@ describe("POST /api/records/:id/describe-variants", () => {
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);
+    await expect(response.doneSnapshot).resolves.toMatchObject([
+      {
+        id: record.id,
+        descriptionVariantsAi: { douyin: {}, xiaohongshu: {}, shipinhao: {} },
+      },
+    ]);
     await expect(readRecords()).resolves.toMatchObject([
       {
         costEstimate: 0.012,
         descriptionVariantsAi: { douyin: {}, xiaohongshu: {}, shipinhao: {} },
       },
     ]);
+    expect(modelSpendSummary()).toEqual({
+      spentCny: 0,
+      reservedCny: 0,
+      pendingReconcile: 0,
+    });
   });
 
-  it("clamps model confidence in all platform result events to 0.6", async () => {
+  it("clamps model confidence in all platform generated events to 0.6", async () => {
     initializeStore(createDirectory());
     const record = createRecord();
     await appendRecord(record);
@@ -74,7 +87,7 @@ describe("POST /api/records/:id/describe-variants", () => {
     });
 
     const resultEvents = Array.from(
-      chunks.join("").matchAll(/event: result\ndata: (.+)\n\n/g),
+      chunks.join("").matchAll(/event: generated\ndata: (.+)\n\n/g),
       (match) =>
         JSON.parse(match[1]!) as {
           confidence: { description: number; overall: number };
@@ -108,6 +121,44 @@ describe("POST /api/records/:id/describe-variants", () => {
     ]);
     expect((await readRecords())[0]?.descriptionVariantsAi).toBeUndefined();
   });
+
+  it("does not send done when saving fails; emits E_WRITE_FAILED and keeps cost", async () => {
+    initializeStore(createDirectory());
+    const record = createRecord();
+    record.costEstimate = 0.012;
+    await appendRecord(record);
+    const { event, chunks, response } = createEvent(record.id);
+
+    await handleDescriptionVariants(event, {
+      mock: false,
+      generate: async () => {
+        await updateRecordDetails(
+          record.id,
+          0,
+          { ...record.recognize, style: "休闲" },
+          record.sku,
+        );
+        return {
+          result: createMockDescriptionVariants(record.recognize),
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+          },
+          costEstimate: 0.004,
+        };
+      },
+    });
+
+    expect(chunks.join("")).not.toContain("event: done");
+    expect(chunks.join("")).toContain(
+      'event: error\ndata: {"code":"E_WRITE_FAILED","message":"描述保存失败，请稍后重试"}',
+    );
+    expect(response.ended).toBe(true);
+    const saved = (await readRecords())[0]!;
+    expect(saved).not.toHaveProperty("descriptionVariantsAi");
+    expect(saved.costEstimate).toBe(0.012);
+  });
 });
 
 function createDirectory(): string {
@@ -127,6 +178,7 @@ function createEvent(id: string, disconnect = false) {
     flushHeaders() {},
     write(chunk: string) {
       chunks.push(chunk);
+      if (chunk.includes("event: done")) this.doneSnapshot = readRecords();
       if (disconnect && chunks.length === 1) this.destroyed = true;
       return true;
     },
@@ -134,6 +186,7 @@ function createEvent(id: string, disconnect = false) {
       this.ended = true;
       return this;
     },
+    doneSnapshot: undefined as Promise<ProductRecord[]> | undefined,
   };
   return {
     chunks,
@@ -147,6 +200,7 @@ function createEvent(id: string, disconnect = false) {
 function createRecord(): ProductRecord {
   return {
     id: "b8d18f28-5964-4c9e-a2f8-0ae388a32d74",
+    detailsVersion: 0,
     createdAt: "2026-10-09T00:00:00.000Z",
     durationMs: { uploadStart: 1, recognizedAt: 2, submittedAt: 3 },
     images: ["a0df5979-b3df-46c7-9c42-266729eb834b"],

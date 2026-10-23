@@ -25,6 +25,8 @@ export const STYLES = [
 export const SEASONS = ["春", "夏", "秋", "冬"] as const;
 export const AUDIENCES = ["女", "男", "儿童", "中性"] as const;
 export const SIZES_TOP = ["XS", "S", "M", "L", "XL", "XXL"] as const;
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+export const MAX_RECORD_IMAGES = 5;
 
 export const ColorInfoSchema = z.object({
   name: z.string().min(1).describe("中文颜色名"),
@@ -114,6 +116,7 @@ export const SKUItemSchema = z.object({
 
 export const ProductRecordSchema = z.object({
   id: z.string().uuid(),
+  detailsVersion: z.number().int().nonnegative().default(0),
   createdAt: z.string().datetime(),
   durationMs: z.object({
     uploadStart: z.number().nonnegative(),
@@ -138,6 +141,10 @@ export const ProductRecordSchema = z.object({
   costEstimate: z.number().nonnegative(),
 });
 
+export const ProductRecordWithImageUrlsSchema = ProductRecordSchema.extend({
+  imageUrls: z.array(z.string().startsWith("/api/uploads/")),
+});
+
 export type RecognizeResult = z.infer<typeof RecognizeResultSchema>;
 export type ModelUsage = z.infer<typeof ModelUsageSchema>;
 export type RecognizeResponse = z.infer<typeof RecognizeResponseSchema>;
@@ -148,7 +155,12 @@ export type DescriptionPlatform = keyof typeof DescriptionVariantsSchema.shape;
 export type UploadFile = z.infer<typeof UploadFileSchema>;
 export type SKUItem = z.infer<typeof SKUItemSchema>;
 export type ProductRecord = z.infer<typeof ProductRecordSchema>;
+export type ProductRecordWithImageUrls = z.infer<
+  typeof ProductRecordWithImageUrlsSchema
+>;
 
 export const RECOGNIZE_FIELD_NAMES = Object.keys(
   RecognizeResultSchema.shape,
 ) as (keyof RecognizeResult)[];
+
+export const PLACEHOLDER_ITEM_NAME = "待人工确认的服装商品";

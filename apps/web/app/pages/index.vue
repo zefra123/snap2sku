@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
+import { apiFetch } from '../utils/api'
 import {
   AUDIENCES,
   CATEGORIES,
+  MAX_RECORD_IMAGES,
   RecognizeResponseSchema,
   ProductRecordSchema,
   RECOGNIZE_FIELD_NAMES,
@@ -16,6 +18,8 @@ import {
   type SKUItem,
   type UploadFile,
 } from '@scope/shared/schema'
+
+definePageMeta({ keepalive: true })
 
 interface QueuedImage {
   key: string
@@ -36,10 +40,27 @@ interface FieldEdit {
   isCorrection: boolean
 }
 
-const config = useRuntimeConfig()
-const mockEnabled = computed(() => config.public.visionMock)
+interface RuntimeInfo {
+  mock: boolean
+  priceConfigured: boolean
+  spentCny: number
+  reservedCny: number
+  pendingReconcile: number
+  budget: number
+  remainingCny: number
+}
+
+const runtimeInfo = ref<RuntimeInfo | null>(null)
+const mockEnabled = computed(() => runtimeInfo.value?.mock ?? false)
+const budgetExhausted = computed(
+  () => Boolean(runtimeInfo.value && !runtimeInfo.value.mock && runtimeInfo.value.remainingCny <= 0),
+)
+const priceWarning = computed(
+  () => Boolean(runtimeInfo.value && !runtimeInfo.value.mock && !runtimeInfo.value.priceConfigured),
+)
 const mockFixture = ref<'tagPrice' | 'noTagPrice' | 'allNull'>('tagPrice')
 const fileInput = ref<HTMLInputElement>()
+const uploadPanel = ref<HTMLElement>()
 const imageQueue = ref<QueuedImage[]>([])
 const customColor = reactive({ name: '', hex: '#B6A895' })
 const result = ref<RecognizeResult>()
@@ -263,28 +284,31 @@ watch(skuCells, (cells) => {
 async function selectFiles(files: FileList | File[]): Promise<void> {
   errorMessage.value = ''
   statusMessage.value = ''
-  const remaining = Math.max(0, 10 - imageQueue.value.length)
+  const remaining = Math.max(0, MAX_RECORD_IMAGES - imageQueue.value.length)
   const selectedFiles = Array.from(files).slice(0, remaining)
-  if (selectedFiles.length < files.length) errorMessage.value = '最多可添加 10 张图片，超出的图片未加入队列。'
+  if (selectedFiles.length < files.length) errorMessage.value = `最多可添加 ${MAX_RECORD_IMAGES} 张图片，超出的图片未加入队列。`
   const added = await Promise.all(selectedFiles.map(async (file): Promise<QueuedImage | undefined> => {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       errorMessage.value = '不支持该格式，请使用 JPG、PNG 或 WebP 图片。'
       return undefined
     }
+    let compressedBlob: Blob
     try {
-      const compressedBlob = await compressImage(file)
-      return {
-        key: crypto.randomUUID(),
-        file,
-        previewUrl: URL.createObjectURL(compressedBlob),
-        originalSize: file.size,
-        compressedBlob,
-        compressedSize: compressedBlob.size,
-        status: 'ready',
-      }
-    } catch {
-      errorMessage.value = `无法读取图片「${file.name}」，请换一张 JPG、PNG 或 WebP。`
+      compressedBlob = await compressImage(file)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error('[image-intake] 图片预处理失败', { name: file.name, type: file.type, size: file.size, error })
+      errorMessage.value = `图片「${file.name}」预处理失败：${detail}`
       return undefined
+    }
+    return {
+      key: createQueueKey(),
+      file,
+      previewUrl: URL.createObjectURL(compressedBlob),
+      originalSize: file.size,
+      compressedBlob,
+      compressedSize: compressedBlob.size,
+      status: 'ready',
     }
   }))
   const validAdded = added.filter((item): item is QueuedImage => item !== undefined)
@@ -300,19 +324,72 @@ async function selectFiles(files: FileList | File[]): Promise<void> {
   if (fileInput.value) fileInput.value.value = ''
 }
 
+function createQueueKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
 async function compressImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
-  const ratio = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(bitmap.width * ratio))
-  canvas.height = Math.max(1, Math.round(bitmap.height * ratio))
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error('canvas unavailable')
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  bitmap.close()
-  return await new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('图片压缩失败')), 'image/jpeg', 0.85)
-  })
+  const decoded = await decodeImage(file)
+  try {
+    const ratio = Math.min(1, 1024 / Math.max(decoded.width, decoded.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(decoded.width * ratio))
+    canvas.height = Math.max(1, Math.round(decoded.height * ratio))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('canvas unavailable')
+    context.drawImage(decoded.source, 0, 0, canvas.width, canvas.height)
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('图片压缩失败')), 'image/jpeg', 0.85)
+    })
+  } finally {
+    decoded.cleanup()
+  }
+}
+
+async function decodeImage(file: File): Promise<{
+  source: CanvasImageSource
+  width: number
+  height: number
+  cleanup: () => void
+}> {
+  let bitmapError = 'createImageBitmap 不可用'
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(file)
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        cleanup: () => bitmap.close(),
+      }
+    } catch (error) {
+      bitmapError = error instanceof Error ? error.message : String(error)
+      // 部分浏览器对 createImageBitmap 支持不完整，回退到原生 Image 解码。
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('原生 Image 解码失败'))
+      image.src = objectUrl
+    })
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      cleanup: () => URL.revokeObjectURL(objectUrl),
+    }
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    const imageError = error instanceof Error ? error.message : String(error)
+    throw new Error(`图片解码失败；createImageBitmap：${bitmapError}；Image：${imageError}`)
+  }
 }
 
 function removeImage(key: string): void {
@@ -348,7 +425,7 @@ async function uploadImages(): Promise<void> {
       if (!blob) throw new Error('图片压缩数据不存在')
       formData.append('image', blob, image.file.name.replace(/\.[^.]+$/, '.jpg'))
       formData.append('originalSize', String(image.originalSize))
-      image.uploaded = await $fetch<UploadFile>('/api/upload', { method: 'POST', body: formData })
+      image.uploaded = await apiFetch<UploadFile>('/api/upload', { method: 'POST', body: formData })
       image.status = 'uploaded'
     }
     statusMessage.value = '图片已上传，可以开始识别。'
@@ -369,6 +446,11 @@ async function recognize(): Promise<void> {
   }
   if (!uploadComplete.value) await uploadImages()
   if (!uploadComplete.value) return
+  await refreshRuntimeInfo()
+  if (budgetExhausted.value) {
+    errorMessage.value = 'E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。'
+    return
+  }
   const firstImage = imageQueue.value[selectedImageIndex.value]
   if (!firstImage?.uploaded) return
   busy.value = true
@@ -376,7 +458,7 @@ async function recognize(): Promise<void> {
   errorMessage.value = ''
   statusMessage.value = '正在识别商品信息…'
   try {
-    const recognizedResponse = RecognizeResponseSchema.parse(await $fetch('/api/recognize', {
+    const recognizedResponse = RecognizeResponseSchema.parse(await apiFetch('/api/recognize', {
       method: 'POST',
       body: { fileId: firstImage.uploaded.fileId, mockFixture: mockFixture.value },
     }))
@@ -405,6 +487,7 @@ async function recognize(): Promise<void> {
   } finally {
     recognizing.value = false
     busy.value = false
+    void refreshRuntimeInfo()
   }
 }
 
@@ -421,9 +504,17 @@ function removeSize(size: string): void {
 
 async function refreshRecords(): Promise<void> {
   try {
-    recordList.value = await $fetch<ProductRecord[]>('/api/records')
+    recordList.value = await apiFetch<ProductRecord[]>('/api/records')
   } catch {
     recordList.value = []
+  }
+}
+
+async function refreshRuntimeInfo(): Promise<void> {
+  try {
+    runtimeInfo.value = await apiFetch<RuntimeInfo>('/api/runtime-info')
+  } catch {
+    runtimeInfo.value = null
   }
 }
 
@@ -450,7 +541,7 @@ async function submitRecord(): Promise<void> {
   try {
     const now = Date.now()
     const draft = {
-      id: crypto.randomUUID(),
+      id: createQueueKey(),
       createdAt: new Date(now).toISOString(),
       durationMs: { uploadStart: uploadStart.value ?? now, recognizedAt: recognizedAt.value ?? now, submittedAt: now },
       images: imageQueue.value.flatMap((image) => image.uploaded ? [image.uploaded.fileId] : []),
@@ -462,12 +553,25 @@ async function submitRecord(): Promise<void> {
       costEstimate: recognitionCostEstimate.value,
     }
     const record = ProductRecordSchema.parse(draft)
-    const saved = await $fetch<ProductRecord>('/api/records', { method: 'POST', body: record })
+    const saved = await apiFetch<ProductRecord>('/api/records', { method: 'POST', body: record })
     recordList.value = [saved, ...recordList.value]
     currentRecognitionSaved.value = true
     statusMessage.value = '商品记录已保存。'
   } catch (error) {
-    errorMessage.value = readErrorMessage(error)
+    if (readErrorCode(error) === 'E_IMAGE_MISSING') {
+      for (const image of imageQueue.value) {
+        image.uploaded = undefined
+        image.status = 'ready'
+        image.error = undefined
+      }
+      recognizedFileId.value = undefined
+      currentRecognitionSaved.value = false
+      statusMessage.value = ''
+      errorMessage.value = '图片已失效，照片已重置为待上传；点击“重新识别”重新上传后再保存。'
+      uploadPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else {
+      errorMessage.value = readErrorMessage(error)
+    }
   } finally {
     saving.value = false
   }
@@ -488,7 +592,23 @@ function readErrorMessage(error: unknown): string {
   return '操作没有完成，请保留表单内容后重试。'
 }
 
-onMounted(() => void refreshRecords())
+function readErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const data = 'data' in error ? error.data : undefined
+  if (typeof data === 'object' && data !== null) {
+    if ('code' in data && data.code === 'E_IMAGE_MISSING') return data.code
+    if ('data' in data) {
+      const nested = data.data
+      if (typeof nested === 'object' && nested !== null && 'code' in nested && nested.code === 'E_IMAGE_MISSING') return nested.code
+    }
+  }
+  return undefined
+}
+
+onMounted(() => {
+  void refreshRecords()
+  void refreshRuntimeInfo()
+})
 onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(image.previewUrl)))
 </script>
 
@@ -507,6 +627,9 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <div v-if="errorMessage" class="notice notice--error" role="alert"><span>!</span>{{ errorMessage }}</div>
       <div v-if="statusMessage" class="notice notice--success" role="status"><img class="status-icon" src="/brand/icons/check.svg" alt="" aria-hidden="true">{{ statusMessage }}</div>
+      <div v-if="priceWarning" class="notice notice--budget" role="status">未配置模型单价，费用统计不可信</div>
+      <div v-if="runtimeInfo && !runtimeInfo.mock" class="notice notice--budget" role="status">试用预算剩余 ¥{{ runtimeInfo.remainingCny.toFixed(2) }} / ¥{{ runtimeInfo.budget.toFixed(2) }}</div>
+      <div v-if="budgetExhausted" class="notice notice--error" role="status">试用额度已用完，模型调用暂不可用</div>
       <div v-if="recognitionUsage" class="usage-summary" role="status">
         <strong>本次识别用量</strong>
         <span class="usage-value">{{ recognitionUsage.prompt_tokens }} 输入 / {{ recognitionUsage.completion_tokens }} 输出 / {{ recognitionUsage.total_tokens }} tokens</span>
@@ -515,10 +638,10 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <div class="work-grid">
         <aside class="upload-column">
-          <section class="panel upload-panel">
+          <section ref="uploadPanel" class="panel upload-panel">
             <div class="panel-heading">
               <div><span class="section-index">01</span><h2><img src="/brand/icons/camera.svg" alt="" aria-hidden="true">商品照片</h2></div>
-              <span class="small-count">{{ imageQueue.length }} / 10</span>
+              <span class="small-count">{{ imageQueue.length }} / {{ MAX_RECORD_IMAGES }}</span>
             </div>
 
             <div
@@ -593,7 +716,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                   <option value="allNull">信息不足 · 全 null 兜底</option>
                 </select>
               </label>
-              <button class="button button--primary recognize-button" type="button" :disabled="busy || saving" @click="recognize">
+              <button class="button button--primary recognize-button" type="button" :disabled="busy || saving || budgetExhausted" @click="recognize">
                 <img v-if="busy" class="btn-scan-icon" src="/brand/loading-scan.svg" alt="" aria-hidden="true">{{ busy ? '请稍候…' : result ? '重新识别' : '识别商品' }} <span v-if="!busy">↗</span>
               </button>
             </div>
@@ -712,6 +835,7 @@ h1 em { color: var(--c-accent); font-style: normal; }
 .notice > span { font-family: var(--font-mono); font-weight: 700; }
 .notice--error { border-color: color-mix(in oklch, var(--c-error) 35%, var(--c-border)); color: var(--c-error); background: color-mix(in oklch, var(--c-error) 4%, var(--c-surface)); }
 .notice--success { color: var(--c-success); background: color-mix(in oklch, var(--c-success) 4%, var(--c-surface)); }
+.notice--budget { border-color: color-mix(in oklch, var(--c-accent) 35%, var(--c-border)); color: var(--c-accent); background: color-mix(in oklch, var(--c-accent) 8%, var(--c-surface)); }
 .usage-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 9px 13px; border: 1px solid var(--c-border); color: var(--c-ink-2); font-size: var(--font-xs); }
 .usage-summary strong { color: var(--c-ink); font-weight: 600; }
 .usage-value,.usage-cost { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

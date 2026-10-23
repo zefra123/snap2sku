@@ -9,14 +9,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolve } from "node:path";
 import type { ProductRecord } from "@scope/shared/schema";
+import { DescriptionSourceSchema } from "@scope/shared/schema";
 import {
   closeStore,
   initializeStore,
   readRecords,
   getRecordById,
   appendRecord,
+  saveGeneratedDescription,
   saveGeneratedDescriptionVariants,
+  updateRecordDetails,
+  resolveDataDirectory,
+  probeDataDirectory,
+  recordCount,
+  windowsRootedPathWarning,
 } from "./store";
 
 const temporaryDirectories: string[] = [];
@@ -29,6 +37,94 @@ afterEach(() => {
 });
 
 describe("SQLite store", () => {
+  it("解析显式数据目录并在未配置时回退到默认目录", () => {
+    expect(resolveDataDirectory("/opt/snap2sku/data")).toBe(
+      resolve("/opt/snap2sku/data"),
+    );
+    expect(resolveDataDirectory("data")).toBe(resolve("data"));
+    expect(resolveDataDirectory("")).toBe(resolveDataDirectory());
+    expect(resolveDataDirectory(undefined)).toBe(resolveDataDirectory());
+    expect(resolveDataDirectory("   ")).toBe(resolveDataDirectory());
+  });
+
+  it("区分新建账本与沿用已有账本", () => {
+    const root = createTemporaryDirectory();
+    const fresh = join(root, "data");
+
+    // 初始化前：目录和库都不存在 —— 生产环境据此拒绝启动
+    expect(probeDataDirectory(fresh)).toMatchObject({
+      directory: resolve(fresh),
+      exists: false,
+      databaseExists: false,
+    });
+
+    initializeStore(fresh);
+
+    // 初始化后：能证明读到的是这一份账本，而不是别处
+    expect(probeDataDirectory(fresh)).toMatchObject({
+      exists: true,
+      databaseExists: true,
+    });
+    expect(recordCount()).toBe(0);
+  });
+
+  it("告警 Windows 上以 / 开头的数据目录", () => {
+    const warning = windowsRootedPathWarning(
+      "win32",
+      "/c/Users/me/snap2sku/data",
+      "C:\\c\\Users\\me\\snap2sku\\data",
+    );
+    expect(warning).toContain("盘符根路径");
+    expect(warning).toContain("C:/...");
+    // 正确写法与 Linux 平台都不告警
+    expect(
+      windowsRootedPathWarning(
+        "win32",
+        "C:/snap2sku/data",
+        "C:\\snap2sku\\data",
+      ),
+    ).toBeUndefined();
+    expect(
+      windowsRootedPathWarning(
+        "linux",
+        "/opt/snap2sku/data",
+        "/opt/snap2sku/data",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("为现有 SQLite 数据库迁移详情版本列", async () => {
+    const directory = createTemporaryDirectory();
+    const database = new Database(join(directory, "records.sqlite"));
+    database.exec(`
+      CREATE TABLE records (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        duration_ms TEXT NOT NULL,
+        images TEXT NOT NULL,
+        recognize TEXT NOT NULL,
+        edits TEXT,
+        ai_correct TEXT,
+        cost_estimate REAL NOT NULL DEFAULT 0,
+        description TEXT NOT NULL,
+        description_ai TEXT
+      );
+    `);
+    database.close();
+
+    initializeStore(directory);
+
+    const migrated = new Database(join(directory, "records.sqlite"));
+    const columns = migrated
+      .prepare("PRAGMA table_info(records)")
+      .all() as Array<{ name: string }>;
+    migrated.close();
+    expect(columns.map((column) => column.name)).toContain("details_version");
+    expect(columns.map((column) => column.name)).toContain(
+      "description_variants_ai",
+    );
+  });
+
   it("新增并读取记录及其 SKU", async () => {
     const directory = createTemporaryDirectory();
     initializeStore(directory);
@@ -57,11 +153,160 @@ describe("SQLite store", () => {
         confidence: { description: 0.8, overall: 0.8 },
       },
     };
-    await saveGeneratedDescriptionVariants(record.id, variants, 0.003);
+    await saveGeneratedDescriptionVariants(
+      record.id,
+      DescriptionSourceSchema.parse(record.recognize),
+      variants,
+      0.003,
+    );
     await expect(getRecordById(record.id)).resolves.toMatchObject({
       descriptionVariantsAi: variants,
       costEstimate: 0.015,
     });
+  });
+
+  it("保存详情页人工修正并追加修正流水", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const recognize = {
+      ...record.recognize,
+      fabric: "棉混纺",
+    };
+    const sku = record.sku.map((item) => ({
+      ...item,
+      tagPrice: item.tagPrice + 10,
+    }));
+
+    const result = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      recognize,
+      sku,
+    );
+    expect(result.kind).toBe("updated");
+    if (result.kind !== "updated") throw new Error("record update failed");
+    const updated = result.record;
+
+    expect(updated.recognize.fabric).toBe("棉混纺");
+    expect(updated.sku[0]?.tagPrice).toBe(139);
+    expect(updated.detailsVersion).toBe(1);
+    expect(updated.edits).toContainEqual({
+      field: "fabric",
+      from: null,
+      to: "棉混纺",
+      isCorrection: true,
+    });
+    expect(updated.edits).toContainEqual({
+      field: "sku:藏青/M:tagPrice",
+      from: 129,
+      to: 139,
+      isCorrection: true,
+    });
+    expect(updated.aiCorrect.fabric).toBe(false);
+  });
+
+  it("文案来源字段变化时清空 AI 文案，但保留手工描述和累计成本", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord({
+      descriptionAi: "旧 AI 文案",
+      descriptionVariantsAi: createDescriptionVariants(),
+    });
+    await appendRecord(record);
+    const recognize = { ...record.recognize, category: "外套" as const };
+
+    const result = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      recognize,
+      record.sku,
+    );
+
+    expect(result.kind).toBe("updated");
+    if (result.kind !== "updated") throw new Error("record update failed");
+    expect(result.record.descriptionAi).toBeUndefined();
+    expect(result.record.descriptionVariantsAi).toBeUndefined();
+    expect(result.record.description).toBe(record.description);
+    expect(result.record.costEstimate).toBe(record.costEstimate);
+  });
+
+  it("非文案来源字段变化不清空 AI 文案", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord({
+      descriptionAi: "仍然有效的 AI 文案",
+      descriptionVariantsAi: createDescriptionVariants(),
+    });
+    await appendRecord(record);
+
+    const result = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      { ...record.recognize, fabric: "棉混纺" },
+      record.sku,
+    );
+
+    expect(result.kind).toBe("updated");
+    if (result.kind !== "updated") throw new Error("record update failed");
+    expect(result.record.descriptionAi).toBe(record.descriptionAi);
+    expect(result.record.descriptionVariantsAi).toEqual(
+      record.descriptionVariantsAi,
+    );
+  });
+
+  it("过期详情版本不覆盖新资料且不追加流水", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const firstEdit = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      { ...record.recognize, fabric: "棉混纺" },
+      record.sku,
+    );
+    expect(firstEdit.kind).toBe("updated");
+    if (firstEdit.kind !== "updated") throw new Error("first update failed");
+
+    const staleResult = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      { ...record.recognize, fabric: "羊毛" },
+      record.sku,
+    );
+
+    expect(staleResult).toEqual({ kind: "conflict" });
+    await expect(getRecordById(record.id)).resolves.toMatchObject({
+      detailsVersion: 1,
+      recognize: { fabric: "棉混纺" },
+      edits: expect.arrayContaining([
+        { field: "fabric", from: null, to: "棉混纺", isCorrection: true },
+      ]),
+    });
+  });
+
+  it("来源资料更新后拒绝保存旧版本生成中的 AI 文案", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    await appendRecord(record);
+    const changed = await updateRecordDetails(
+      record.id,
+      record.detailsVersion,
+      { ...record.recognize, colors: [{ name: "米白", hex: "#F4F0E8" }] },
+      record.sku,
+    );
+    expect(changed.kind).toBe("updated");
+
+    await expect(
+      saveGeneratedDescription(
+        record.id,
+        DescriptionSourceSchema.parse(record.recognize),
+        "旧版本生成文案".repeat(10),
+        0.02,
+      ),
+    ).resolves.toBe(false);
+    const saved = await getRecordById(record.id);
+    expect(saved?.detailsVersion).toBe(1);
+    expect(saved?.costEstimate).toBe(record.costEstimate);
+    expect(saved?.descriptionAi).toBeUndefined();
   });
 
   it("按 ID 读取单条记录且不会解析其他脏记录", async () => {
@@ -157,6 +402,7 @@ function createTemporaryDirectory(): string {
 function createRecord(overrides: Partial<ProductRecord> = {}): ProductRecord {
   return {
     id: "b8d18f28-5964-4c9e-a2f8-0ae388a32d74",
+    detailsVersion: 0,
     createdAt: "2026-10-08T00:00:00.000Z",
     durationMs: {
       uploadStart: 1_791_408_000_000,
@@ -186,5 +432,24 @@ function createRecord(overrides: Partial<ProductRecord> = {}): ProductRecord {
     aiCorrect: { category: false },
     costEstimate: 0.012,
     ...overrides,
+  };
+}
+
+function createDescriptionVariants(): NonNullable<
+  ProductRecord["descriptionVariantsAi"]
+> {
+  return {
+    douyin: {
+      description: "抖音文案".repeat(15),
+      confidence: { description: 0.8, overall: 0.8 },
+    },
+    xiaohongshu: {
+      description: "小红书文案".repeat(15),
+      confidence: { description: 0.8, overall: 0.8 },
+    },
+    shipinhao: {
+      description: "视频号文案".repeat(15),
+      confidence: { description: 0.8, overall: 0.8 },
+    },
   };
 }

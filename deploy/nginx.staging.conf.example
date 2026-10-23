@@ -1,0 +1,42 @@
+# 备案窗口期（域名尚未下号）临时 Nginx 配置
+#
+# 用途：备案期间先用 http://<公网IP>:8080 调通功能 /api 与页面。
+# 备案下号、域名解析生效后，删掉本文件对应的站点，改用 nginx.conf.example。
+#
+# 重要：备案期间【不要】把域名 A 记录解析到这台服务器。
+#       云厂商会扫描「域名 ↔ IP」关联，检测到未备案域名指向境内节点后，
+#       可能直接关闭该服务器的公网访问（常见 24–72 小时），届时连 SSH 之外的调试都做不了。
+#       解析留到下号之后再做。
+#
+# 为什么用 8080：未备案的境内服务器，80/443 会被骨干网/接入商拦截，
+#       非标端口才是备案期间唯一能走通的路。
+
+server {
+    listen 8080;
+    server_name _;
+
+    client_max_body_size 10m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    location ^~ /api/uploads/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        add_header Cache-Control "private, max-age=60" always;
+    }
+}

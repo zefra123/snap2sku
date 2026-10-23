@@ -11,6 +11,8 @@ import {
   initializeStore,
   appendRecord,
   readRecords,
+  modelSpendSummary,
+  updateRecordDetails,
 } from "../../../utils/store";
 import { createDescriptionGeneration } from "../../../utils/vision";
 import { handleRecordDescription } from "./describe.post";
@@ -50,7 +52,7 @@ describe("POST /api/records/:id/describe", () => {
     );
     expect(textFragments.join("")).toBe(description);
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.88,"overall":0.88},"descriptionCostEstimate":0,"costEstimate":0.012}',
+      'event: generated\ndata: {"confidence":{"description":0.88,"overall":0.88},"descriptionCostEstimate":0,"costEstimate":0.012}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.statusCode).toBe(200);
@@ -58,9 +60,17 @@ describe("POST /api/records/:id/describe", () => {
       "text/event-stream; charset=utf-8",
     );
     expect(response.ended).toBe(true);
+    await expect(response.doneSnapshot).resolves.toMatchObject([
+      { id: record.id, descriptionAi: description },
+    ]);
     await expect(readRecords()).resolves.toMatchObject([
       { id: record.id, costEstimate: 0.012 },
     ]);
+    expect(modelSpendSummary()).toEqual({
+      spentCny: 0,
+      reservedCny: 0,
+      pendingReconcile: 0,
+    });
   });
 
   it("限制真模型自评置信度后沿用相同 SSE 事件格式输出并保存", async () => {
@@ -94,7 +104,7 @@ describe("POST /api/records/:id/describe", () => {
     const stream = chunks.join("");
     expect(stream).toContain("event: chunk\ndata:");
     expect(stream).toContain(
-      'event: result\ndata: {"confidence":{"description":0.6,"overall":0.6},"descriptionCostEstimate":0.0045,"costEstimate":0.0165}',
+      'event: generated\ndata: {"confidence":{"description":0.6,"overall":0.6},"descriptionCostEstimate":0.0045,"costEstimate":0.0165}',
     );
     expect(stream).toContain("event: done\ndata: [DONE]\n\n");
     expect(response.ended).toBe(true);
@@ -118,6 +128,47 @@ describe("POST /api/records/:id/describe", () => {
     expect(chunks.join("")).not.toContain("event: done");
     expect(response.ended).toBe(false);
     await expect(readRecords()).resolves.toEqual([record]);
+  });
+
+  it("保存冲突时发送 E_WRITE_FAILED，不发送 done 且不累加成本", async () => {
+    initializeStore(createTemporaryDirectory());
+    const record = createRecord();
+    record.costEstimate = 0.012;
+    await appendRecord(record);
+    const { event, chunks, response } = createEvent(record.id);
+    const generated = createDescriptionGeneration(
+      {
+        description: "这是一段通过 schema 校验的模型商品描述。".repeat(3),
+        confidence: { description: 0.5, overall: 0.5 },
+      },
+      {
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      },
+      2,
+      8,
+    );
+
+    await handleRecordDescription(event, {
+      mock: false,
+      generate: async () => {
+        await updateRecordDetails(
+          record.id,
+          0,
+          { ...record.recognize, style: "休闲" },
+          record.sku,
+        );
+        return generated;
+      },
+    });
+
+    expect(chunks.join("")).not.toContain("event: done");
+    expect(chunks.join("")).toContain(
+      'event: error\ndata: {"code":"E_WRITE_FAILED","message":"描述保存失败，请稍后重试"}',
+    );
+    expect(response.ended).toBe(true);
+    const saved = (await readRecords())[0]!;
+    expect(saved).not.toHaveProperty("descriptionAi");
+    expect(saved.costEstimate).toBe(0.012);
   });
 
   it("record 不存在时返回 404", async () => {
@@ -184,6 +235,7 @@ function createResponse(chunks: string[], destroyAfterFirstWrite: boolean) {
     flushHeaders() {},
     write(chunk: string) {
       chunks.push(chunk);
+      if (chunk.includes("event: done")) this.doneSnapshot = readRecords();
       if (destroyAfterFirstWrite && chunks.length === 1) this.destroyed = true;
       return true;
     },
@@ -191,12 +243,14 @@ function createResponse(chunks: string[], destroyAfterFirstWrite: boolean) {
       this.ended = true;
       return this;
     },
+    doneSnapshot: undefined as Promise<ProductRecord[]> | undefined,
   };
 }
 
 function createRecord(): ProductRecord {
   return {
     id: "b8d18f28-5964-4c9e-a2f8-0ae388a32d74",
+    detailsVersion: 0,
     createdAt: "2026-10-09T00:00:00.000Z",
     durationMs: { uploadStart: 1, recognizedAt: 2, submittedAt: 3 },
     images: ["a0df5979-b3df-46c7-9c42-266729eb834b"],

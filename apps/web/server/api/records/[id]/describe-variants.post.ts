@@ -68,6 +68,7 @@ export async function handleDescriptionVariants(
   response.setHeader("Cache-Control", "no-cache, no-transform");
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
+  response.setHeader("X-Content-Type-Options", "nosniff");
   response.flushHeaders();
 
   for (const platform of PLATFORMS) {
@@ -82,26 +83,29 @@ export async function handleDescriptionVariants(
     }
     if (response.destroyed) return;
     response.write(
-      `event: result\ndata: ${JSON.stringify({ platform, platformLabel: PLATFORM_LABELS[platform], confidence: result.confidence, descriptionCostEstimate: platform === "shipinhao" ? generated.costEstimate : 0, costEstimate: record.costEstimate + (platform === "shipinhao" ? generated.costEstimate : 0) })}\n\n`,
+      `event: generated\ndata: ${JSON.stringify({ platform, platformLabel: PLATFORM_LABELS[platform], confidence: result.confidence, descriptionCostEstimate: platform === "shipinhao" ? generated.costEstimate : 0, costEstimate: record.costEstimate + (platform === "shipinhao" ? generated.costEstimate : 0) })}\n\n`,
     );
   }
   if (response.destroyed) return;
-  response.write("event: done\ndata: [DONE]\n\n");
-  response.end();
-
-  if (
-    !(await saveGeneratedDescriptionVariants(
+  let saved = false;
+  try {
+    saved = await saveGeneratedDescriptionVariants(
       record.id,
+      source,
       variants,
       generated.costEstimate,
-    ))
-  ) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: "E_WRITE_FAILED: 描述保存失败，请稍后重试",
-      data: { code: "E_WRITE_FAILED", message: "描述保存失败，请稍后重试" },
-    });
+    );
+  } catch {
+    // 持久化失败必须通过已开始的 SSE 流通知客户端。
   }
+  if (!saved) {
+    writeStreamError(event, "E_WRITE_FAILED", "描述保存失败，请稍后重试");
+    return;
+  }
+
+  if (response.destroyed) return;
+  response.write("event: done\ndata: [DONE]\n\n");
+  response.end();
 }
 
 function splitText(value: string, size: number): string[] {
@@ -122,6 +126,15 @@ function clampConfidence(
       overall: Math.min(result.confidence.overall, 0.6),
     },
   };
+}
+
+function writeStreamError(event: H3Event, code: string, message: string): void {
+  const response = event.node.res;
+  if (response.destroyed) return;
+  response.write(
+    `event: error\ndata: ${JSON.stringify({ code, message })}\n\n`,
+  );
+  response.end();
 }
 
 function delay(milliseconds: number): Promise<void> {

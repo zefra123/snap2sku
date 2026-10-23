@@ -25,7 +25,7 @@ pnpm dev
 
 上传图片写入项目根目录的 `data/uploads/`，录入记录写入 `data/records.sqlite`（WAL 模式）。首次启动会把旧 `data/records.json` 导入 SQLite，并改名保留为 `data/records.json.bak`。这些目录不位于 Nuxt `public/` 下，不作为静态资源公开。
 
-配置 `NUXT_ACCESS_CODE` 后，上传、识别、描述和记录写入接口要求请求头 `x-access-code`；未配置时本地开发放行，响应带 `X-Access-Code-Mode: disabled`。
+配置 `NUXT_ACCESS_CODE` 后，上传、识别、描述、记录读写接口要求请求头 `x-access-code`；未配置时本地开发放行，响应带 `X-Access-Code-Mode: disabled`。生产环境必须配置访问码和独立的 `NUXT_UPLOAD_SIGNING_SECRET`（至少 32 字节随机值，可用 `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` 生成），否则服务拒绝启动。记录列表返回的图片缩略图使用 60 秒有效的 HMAC 签名 URL。轮换签名密钥时，先将旧值设为 `NUXT_UPLOAD_SIGNING_SECRET_PREVIOUS`，再更新 `NUXT_UPLOAD_SIGNING_SECRET` 并重启；等待 60 秒后删除旧值。
 
 真实视觉模型模式要求仅在本机服务端配置 `NUXT_VISION_API_KEY`；也可通过 `NUXT_VISION_MODEL` 和 `NUXT_VISION_BASE_URL` 设置模型与兼容 API 地址。不要把密钥提交到仓库或发送到聊天中。
 
