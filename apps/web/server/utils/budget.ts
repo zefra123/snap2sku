@@ -74,12 +74,15 @@ export function reserveModelCall(
   event: H3Event,
   kind: ModelSpendKind,
   recordId?: string,
+  reserveMultiplier = 1,
 ): ModelSpendReservation {
   const config = useRuntimeConfig(event);
   const capCny = Number(config.trialBudgetCny);
-  const reserveCny = estimateReserveCny(
-    recentSettledSpendCny(kind),
-    config.trialReserveCny,
+  const reserveCny = Number(
+    (
+      estimateReserveCny(recentSettledSpendCny(kind), config.trialReserveCny) *
+      Math.max(1, reserveMultiplier)
+    ).toFixed(8),
   );
   const reservation = reserveModelSpend({
     kind,

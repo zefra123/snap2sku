@@ -1,23 +1,23 @@
-import { RecognizeResponseSchema } from "@scope/shared/schema";
+import {
+  RecognizeRequestSchema,
+  RecognizeResponseSchema,
+} from "@scope/shared/schema";
 import { failApi } from "../utils/api-error";
 import { recognizeImage, type MockFixture } from "../utils/vision";
 
-const fileIdPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ fileId?: unknown; mockFixture?: unknown }>(
-    event,
-  );
-  if (typeof body?.fileId !== "string" || !fileIdPattern.test(body.fileId)) {
+  const parsed = RecognizeRequestSchema.safeParse(await readBody(event));
+  if (!parsed.success) {
     failApi(400, "E_VALIDATION", "图片编号无效");
   }
+  const fileIds =
+    "fileIds" in parsed.data ? parsed.data.fileIds : [parsed.data.fileId];
   const fixture: MockFixture =
-    body.mockFixture === "noTagPrice"
+    parsed.data.mockFixture === "noTagPrice"
       ? "noTagPrice"
-      : body.mockFixture === "allNull"
+      : parsed.data.mockFixture === "allNull"
         ? "allNull"
         : "tagPrice";
-  const response = await recognizeImage(body.fileId, fixture, event);
+  const response = await recognizeImage(fileIds, fixture, event);
   return RecognizeResponseSchema.parse(response);
 });

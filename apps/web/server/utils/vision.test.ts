@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DescribeResultSchema,
   DescriptionVariantsSchema,
+  RecognizeRequestSchema,
   RecognizeResponseSchema,
   RecognizeResultSchema,
 } from "@scope/shared/schema";
@@ -18,6 +19,32 @@ import {
 } from "./vision";
 
 describe("visual adapter mock fixtures", () => {
+  it("accepts one to five recognition images and keeps the legacy single-image request", () => {
+    const fileIds = Array.from(
+      { length: 5 },
+      (_, index) => `a0df5979-b3df-46c7-9c42-266729eb834${index}`,
+    );
+
+    expect(RecognizeRequestSchema.safeParse({ fileIds }).success).toBe(true);
+    expect(
+      RecognizeRequestSchema.safeParse({ fileId: fileIds[0] }).success,
+    ).toBe(true);
+    expect(
+      RecognizeRequestSchema.safeParse({
+        fileIds: [...fileIds, "e37d4445-88ab-4f71-a27b-5d2721e13e9b"],
+      }).success,
+    ).toBe(false);
+    expect(RecognizeRequestSchema.safeParse({ fileIds: [] }).success).toBe(
+      false,
+    );
+    expect(
+      RecognizeRequestSchema.safeParse({
+        fileId: fileIds[0],
+        fileIds: [fileIds[0]],
+      }).success,
+    ).toBe(false);
+  });
+
   it("uses only the private runtime mock setting", () => {
     expect(
       isVisionMockEnabled({ visionMock: "0", public: { visionMock: true } }),

@@ -21,9 +21,55 @@ import {
 } from "@scope/shared/schema";
 
 const records = ref<ProductRecordWithImageUrls[]>([]);
+const searchQuery = ref("");
+const sortOrder = ref<"newest" | "oldest" | "name">("newest");
 const totalCostEstimate = computed(() =>
   records.value.reduce((total, record) => total + record.costEstimate, 0),
 );
+const visibleRecords = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase("zh-CN");
+  const filtered = query
+    ? records.value.filter((record) =>
+        [
+          record.recognize.item_name,
+          record.recognize.category,
+          record.recognize.style,
+          record.recognize.seasons.join(" "),
+          record.recognize.audience,
+          record.recognize.fabric ?? "",
+          record.recognize.colors.map((color) => color.name).join(" "),
+          record.sku
+            .map((sku) =>
+              [
+                sku.color,
+                sku.size,
+                sku.stock,
+                sku.tagPrice,
+                sku.wholesalePrice,
+              ].join(" "),
+            )
+            .join(" "),
+        ]
+          .join(" ")
+          .toLocaleLowerCase("zh-CN")
+          .includes(query),
+      )
+    : [...records.value];
+
+  return filtered.sort((left, right) => {
+    const createdAtOrder =
+      Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    if (sortOrder.value === "newest") return createdAtOrder;
+    if (sortOrder.value === "oldest") return -createdAtOrder;
+    return (
+      left.recognize.item_name.localeCompare(
+        right.recognize.item_name,
+        "zh-CN",
+        { numeric: true, sensitivity: "base" },
+      ) || createdAtOrder
+    );
+  });
+});
 const loading = ref(true);
 const errorMessage = ref("");
 const runtimeInfo = ref<{
@@ -799,11 +845,49 @@ function editValue(value: unknown): string {
       </div>
 
       <section v-else class="records-table-wrap" aria-label="商品记录列表">
-        <div class="records-table-head" role="row">
+        <div class="records-toolbar">
+          <label class="records-search">
+            <span>搜索记录</span>
+            <input
+              v-model="searchQuery"
+              type="search"
+              placeholder="商品名、品类、颜色、尺码或价格"
+              aria-label="搜索商品名、品类、颜色、尺码或价格"
+            >
+          </label>
+          <label class="records-sort">
+            <span>排序</span>
+            <select v-model="sortOrder" aria-label="记录排序方式">
+              <option value="newest">最新录入</option>
+              <option value="oldest">最早录入</option>
+              <option value="name">商品名称</option>
+            </select>
+          </label>
+          <span class="records-result-count" role="status">
+            {{ visibleRecords.length }} / {{ records.length }} 条
+          </span>
+        </div>
+        <div
+          v-if="!visibleRecords.length"
+          class="records-filter-empty"
+          role="status"
+        >
+          <strong>没有找到匹配记录</strong>
+          <span>试试商品名、颜色、品类、尺码或价格关键词。</span>
+        </div>
+        <div
+          v-if="visibleRecords.length"
+          class="records-table-head"
+          role="row"
+        >
           <span>照片</span><span>商品 / 品类 · 颜色</span><span>SKU 数</span
           ><span>耗时</span><span>成本</span><span>人工修正</span>
         </div>
-        <div v-for="record in records" :key="record.id" class="record-group">
+        <div
+          v-for="record in visibleRecords"
+          :key="record.id"
+          class="record-group"
+        >
           <button
             class="record-list-row"
             type="button"
@@ -1200,6 +1284,60 @@ function editValue(value: unknown): string {
 .records-table-wrap {
   border: 1px solid var(--c-border);
   background: var(--c-surface);
+}
+.records-toolbar {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg);
+}
+.records-search,
+.records-sort {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--c-ink-2);
+  font-size: var(--font-xs);
+}
+.records-search {
+  flex: 1;
+  min-width: 200px;
+}
+.records-sort {
+  width: 168px;
+}
+.records-search input,
+.records-sort select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+  font-size: var(--font-sm);
+}
+.records-result-count {
+  padding-bottom: 8px;
+  color: var(--c-ink-2);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+.records-filter-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-3);
+  color: var(--c-ink-2);
+  font-size: var(--font-sm);
+  text-align: center;
+}
+.records-filter-empty strong {
+  color: var(--c-ink);
+  font-size: var(--font-sm);
 }
 .records-table-head,
 .record-list-row {
@@ -1631,6 +1769,22 @@ function editValue(value: unknown): string {
 @media (max-width: 760px) {
   .records-main {
     width: calc(100% - 28px);
+  }
+  .records-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: var(--space-2);
+  }
+  .records-search {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .records-sort {
+    width: 160px;
+  }
+  .records-result-count {
+    justify-self: end;
   }
   .records-table-head {
     display: none;

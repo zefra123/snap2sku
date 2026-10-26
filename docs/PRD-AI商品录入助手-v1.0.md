@@ -60,8 +60,8 @@
 1. 商家在 Web 端拖入 N 张照片（同一款，多角度）
 2. 前端 canvas 压缩：长边≤1024px、JPEG 质量 0.85，展示每张压缩前后体积
 3. POST /api/upload（逐张，FormData）→ 返回 fileId 列表，图片落盘 uploads/
-4. 前端选第一张 → POST /api/recognize {fileId}
-5. 服务端：读图→base64→调 GLM-4V-Flash→剥壳→zod 校验（失败带错误重试 1 次）
+4. 前端 POST /api/recognize {fileIds}；服务端将 1–5 张照片作为同一商品的多模态输入，综合识别一份商品资料
+5. 服务端：逐张读图→base64→调 GLM-4V-Flash→剥壳→zod 校验（失败带错误重试 1 次）
 6. 返回 RecognizeResult（含逐字段 confidence）
 7. 前端表单预填：枚举选项从 schema 生成；confidence<0.7 的字段标黄
 8. 商家逐项确认/修改；每次修改记录进 edits[]
@@ -129,18 +129,18 @@
 
 **5.4 API 契约**
 
-| 路由                               | 方法       | 入                                  | 出（成功）                                                                                         | 出（失败）                                                                                                  |
-| ---------------------------------- | ---------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| /api/upload                        | POST       | FormData(image)                     | 200 UploadFile                                                                                     | 415 E_FORMAT / 413 E_SIZE                                                                                   |
-| /api/recognize                     | POST       | {fileId}                            | 200 RecognizeResult + usage                                                                        | 422 E_RECOGNIZE_INVALID / 502 E_UPSTREAM / 429 E_RATE_LIMIT                                                 |
-| /api/records/:id/describe          | POST       | 记录 ID（路径参数）                 | SSE text/event-stream（event: chunk/generated/done；done 仅在保存成功后发送）                      | 404 E_RECORD_NOT_FOUND / 503 E_DESCRIPTION_UNAVAILABLE / 422 E_RECOGNIZE_INVALID / SSE error E_WRITE_FAILED |
-| /api/records/:id/describe-variants | POST       | 记录 ID（路径参数）                 | SSE text/event-stream（事件 chunk/generated/done；三平台文案；保存成功后发送 done）                | 同上（V1.9 新增，F-10）                                                                                     |
-| /api/records                       | GET / POST | — / ProductRecord                   | GET 200 []（需访问码）/ POST 201                                                                   | 400 E_VALIDATION / 400 E_IMAGE_MISSING / GET 401 E_ACCESS_CODE_REQUIRED                                     |
-| /api/uploads/:fileId               | GET        | exp + sig（HMAC-SHA256，60 秒有效） | 200 图片字节；Cache-Control: private, max-age=60                                                   | 400 E_VALIDATION / 403 E_SIGNATURE_INVALID / 404 E_FILE_NOT_FOUND / 500 E_READ_FAILED                       |
-| /api/records/:id                   | PUT        | {detailsVersion, recognize, sku}    | 更新后的 ProductRecordWithImageUrls                                                                | 409 E_RECORD_CONFLICT / 404 E_RECORD_NOT_FOUND / 400 E_VALIDATION                                           |
-| /api/runtime-info                  | GET        | —                                   | {mock, priceConfigured, spentCny, reservedCny, pendingReconcile, budget, remainingCny}（需访问码） | 401 E_ACCESS_CODE_REQUIRED                                                                                  |
-| /api/admin/reconcile               | POST       | {id, decision: settled\|released}   | 200 {ok:true}                                                                                      | 400 E_VALIDATION / 401 E_ACCESS_CODE_REQUIRED / 404 E_VALIDATION                                            |
-| /api/health                        | GET        | —                                   | {status: ok}                                                                                       | —                                                                                                           |
+| 路由                               | 方法       | 入                                             | 出（成功）                                                                                         | 出（失败）                                                                                                  |
+| ---------------------------------- | ---------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| /api/upload                        | POST       | FormData(image)                                | 200 UploadFile                                                                                     | 415 E_FORMAT / 413 E_SIZE                                                                                   |
+| /api/recognize                     | POST       | {fileIds: uuid[1..5]}（兼容旧客户端 {fileId}） | 200 RecognizeResult + usage                                                                        | 400 E_VALIDATION / 404 E_FILE_NOT_FOUND / 422 E_RECOGNIZE_INVALID / 502 E_UPSTREAM / 429 E_RATE_LIMIT       |
+| /api/records/:id/describe          | POST       | 记录 ID（路径参数）                            | SSE text/event-stream（event: chunk/generated/done；done 仅在保存成功后发送）                      | 404 E_RECORD_NOT_FOUND / 503 E_DESCRIPTION_UNAVAILABLE / 422 E_RECOGNIZE_INVALID / SSE error E_WRITE_FAILED |
+| /api/records/:id/describe-variants | POST       | 记录 ID（路径参数）                            | SSE text/event-stream（事件 chunk/generated/done；三平台文案；保存成功后发送 done）                | 同上（V1.9 新增，F-10）                                                                                     |
+| /api/records                       | GET / POST | — / ProductRecord                              | GET 200 []（需访问码）/ POST 201                                                                   | 400 E_VALIDATION / 400 E_IMAGE_MISSING / GET 401 E_ACCESS_CODE_REQUIRED                                     |
+| /api/uploads/:fileId               | GET        | exp + sig（HMAC-SHA256，60 秒有效）            | 200 图片字节；Cache-Control: private, max-age=60                                                   | 400 E_VALIDATION / 403 E_SIGNATURE_INVALID / 404 E_FILE_NOT_FOUND / 500 E_READ_FAILED                       |
+| /api/records/:id                   | PUT        | {detailsVersion, recognize, sku}               | 更新后的 ProductRecordWithImageUrls                                                                | 409 E_RECORD_CONFLICT / 404 E_RECORD_NOT_FOUND / 400 E_VALIDATION                                           |
+| /api/runtime-info                  | GET        | —                                              | {mock, priceConfigured, spentCny, reservedCny, pendingReconcile, budget, remainingCny}（需访问码） | 401 E_ACCESS_CODE_REQUIRED                                                                                  |
+| /api/admin/reconcile               | POST       | {id, decision: settled\|released}              | 200 {ok:true}                                                                                      | 400 E_VALIDATION / 401 E_ACCESS_CODE_REQUIRED / 404 E_VALIDATION                                            |
+| /api/health                        | GET        | —                                              | {status: ok}                                                                                       | —                                                                                                           |
 
 环境变量（服务端 only，禁入前端 bundle）：`NUXT_VISION_API_KEY`、`NUXT_VISION_MODEL`、`NUXT_VISION_BASE_URL`、`NUXT_VISION_INPUT_PRICE_PER_MILLION`、`NUXT_VISION_OUTPUT_PRICE_PER_MILLION`、`NUXT_VISION_MOCK`、`NUXT_TRIAL_BUDGET_CNY`、`NUXT_TRIAL_RESERVE_CNY`、`NUXT_TRIAL_ID`、`NUXT_ACCESS_CODE`、`NUXT_UPLOAD_SIGNING_SECRET`、`NUXT_UPLOAD_SIGNING_SECRET_PREVIOUS`、`NUXT_DATA_DIR`。生产启动必须设置访问码、至少 32 字节随机图片签名密钥与 NUXT_DATA_DIR；数据目录启动时解析为绝对路径并写入日志，显式配置后账本位置不随 process.cwd() 改变。**生产环境该目录必须已存在：目录不存在时拒绝启动，应用不会自动创建，目录由部署脚本创建。** 启动日志必须同时打印账本状态——沿用已有账本时输出记录条数、累计已花费、预占金额与待对账笔数；新建账本时必须显式告警「累计费用从 ¥0 起算」，避免把路径写错误报成「费用为 0」。本地开发未配置或目录不存在时继续允许自动创建。Windows 下 NUXT_DATA_DIR 使用 `C:/...` 形式，以 `/` 开头的路径会被解析为盘符根路径并打印告警。访问码不派生签名密钥。
 
@@ -184,6 +184,8 @@
 | F-2      | 给定 1 张清晰服装照，/api/recognize 在 15s 内返回通过 zod 校验的 RecognizeResult                                                                                                                        | 是     |
 | F-2      | 给定一张非服装照片（如风景），返回不崩溃，confidence.overall < 0.5 或 category=其他                                                                                                                     | 是     |
 | F-2      | 给定 1 张吊牌印有清晰价格的服装照，tagPrice 返回对应数字；吊牌不可见时返回 null 而非猜测值                                                                                                              | 是     |
+| F-2      | 给定同一商品的全貌照与吊牌近照，识别请求同时包含全部照片并综合输出一份资料；吊牌价从清晰吊牌读取，否则为 null                                                                                           | 是     |
+| F-2      | 不同商品应分开创建记录；界面提示一次上传的多张照片必须属于同一件商品                                                                                                                                    | 是     |
 | F-3      | 识别返回后，表单各字段值与 JSON 一致；confidence<0.7 的字段带视觉标识                                                                                                                                   | 是     |
 | F-4      | 给定 3 色 × 4 码，矩阵渲染 12 格；删除 1 色后为 8 格；数据正确回传                                                                                                                                      | 是     |
 | F-4      | 500 格极端用例下输入不丢字、无明显卡顿，README 记录渲染耗时基准                                                                                                                                         | 是     |

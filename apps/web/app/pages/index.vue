@@ -65,7 +65,7 @@ const imageQueue = ref<QueuedImage[]>([])
 const customColor = reactive({ name: '', hex: '#B6A895' })
 const result = ref<RecognizeResult>()
 const initialResult = ref<RecognizeResult>()
-const recognizedFileId = ref<string>()
+const recognizedFileIds = ref<string[]>([])
 const confirmedFields = reactive(new Set<string>())
 const edits = ref<Record<string, FieldEdit>>({})
 const aiCorrect = ref<Record<string, boolean>>({})
@@ -82,10 +82,12 @@ const recognizedAt = ref<number>()
 const busy = ref(false)
 const recognizing = ref(false)
 const saving = ref(false)
+const saveSuccessDialog = ref<HTMLDialogElement>()
 const statusMessage = ref('')
 const errorMessage = ref('')
 const dragActive = ref(false)
 const selectedImageIndex = ref(0)
+const skuPriceErrors = reactive<Record<string, { tagPrice?: string; wholesalePrice?: string }>>({})
 
 const colorChoices = [
   { name: '藏青', hex: '#263A55' }, { name: '米白', hex: '#E8E0D0' },
@@ -141,7 +143,34 @@ function setSkuValue(key: string, field: 'stock' | 'tagPrice' | 'wholesalePrice'
   const value = skuValues[key]
   if (!value) return
   if (field === 'stock') value.stock = parsed === null ? 0 : Math.max(0, Math.floor(parsed))
-  else value[field] = parsed
+  else {
+    value[field] = parsed
+    const fieldErrors = skuPriceErrors[key]
+    if (fieldErrors?.[field] && parsed !== null && Number.isFinite(parsed) && parsed > 0) {
+      delete fieldErrors[field]
+      if (!fieldErrors.tagPrice && !fieldErrors.wholesalePrice) delete skuPriceErrors[key]
+    } else if (fieldErrors?.[field]) {
+      const label = field === 'tagPrice' ? '吊牌价' : '批发单价'
+      fieldErrors[field] = parsed === null || !Number.isFinite(parsed) ? `请填写${label}` : `${label}必须大于 0`
+    }
+  }
+}
+
+function validateSkuPrices(): boolean {
+  for (const key of Object.keys(skuPriceErrors)) delete skuPriceErrors[key]
+
+  for (const cell of skuCells.value) {
+    const value = skuValue(cell.key)
+    const fieldErrors: { tagPrice?: string; wholesalePrice?: string } = {}
+    for (const field of ['tagPrice', 'wholesalePrice'] as const) {
+      const price = value[field]
+      if (price === null || !Number.isFinite(price)) fieldErrors[field] = field === 'tagPrice' ? '请填写吊牌价' : '请填写批发单价'
+      else if (price <= 0) fieldErrors[field] = field === 'tagPrice' ? '吊牌价必须大于 0' : '批发单价必须大于 0'
+    }
+    if (fieldErrors.tagPrice || fieldErrors.wholesalePrice) skuPriceErrors[cell.key] = fieldErrors
+  }
+
+  return skuCells.value.length > 0 && Object.keys(skuPriceErrors).length === 0
 }
 
 function skuValue(key: string): { stock: number; tagPrice: number | null; wholesalePrice: number | null } {
@@ -177,7 +206,7 @@ function loadExample(): void {
   for (const [index, size] of sizeSelection.value.entries()) {
     skuValues[skuKey('奶油黄', size)] = { stock: index === 0 ? 0 : 12 + index, tagPrice: 129, wholesalePrice: 58 }
   }
-  recognizedFileId.value = undefined
+  recognizedFileIds.value = []
   statusMessage.value = '示例资料已填入；此操作没有上传图片，也没有请求模型。'
   errorMessage.value = ''
 }
@@ -316,7 +345,7 @@ async function selectFiles(files: FileList | File[]): Promise<void> {
   if (validAdded.length) {
     result.value = undefined
     initialResult.value = undefined
-    recognizedFileId.value = undefined
+    recognizedFileIds.value = []
     recognitionUsage.value = undefined
     recognitionCostEstimate.value = 0
     currentRecognitionSaved.value = false
@@ -397,10 +426,10 @@ function removeImage(key: string): void {
   if (image) URL.revokeObjectURL(image.previewUrl)
   imageQueue.value = imageQueue.value.filter((item) => item.key !== key)
   selectedImageIndex.value = Math.min(selectedImageIndex.value, Math.max(0, imageQueue.value.length - 1))
-  if (image?.uploaded?.fileId === recognizedFileId.value) {
+  if (image?.uploaded && recognizedFileIds.value.includes(image.uploaded.fileId)) {
     result.value = undefined
     initialResult.value = undefined
-    recognizedFileId.value = undefined
+    recognizedFileIds.value = []
     recognitionUsage.value = undefined
     recognitionCostEstimate.value = 0
     currentRecognitionSaved.value = false
@@ -451,23 +480,23 @@ async function recognize(): Promise<void> {
     errorMessage.value = 'E_BUDGET_EXHAUSTED：试用额度已用完，请稍后再试。'
     return
   }
-  const firstImage = imageQueue.value[selectedImageIndex.value]
-  if (!firstImage?.uploaded) return
+  const fileIds = imageQueue.value.flatMap((image) => image.uploaded ? [image.uploaded.fileId] : [])
+  if (!fileIds.length) return
   busy.value = true
   recognizing.value = true
   errorMessage.value = ''
-  statusMessage.value = '正在识别商品信息…'
+  statusMessage.value = `正在综合识别 ${fileIds.length} 张照片…`
   try {
     const recognizedResponse = RecognizeResponseSchema.parse(await apiFetch('/api/recognize', {
       method: 'POST',
-      body: { fileId: firstImage.uploaded.fileId, mockFixture: mockFixture.value },
+      body: { fileIds, mockFixture: mockFixture.value },
     }))
     result.value = recognizedResponse.result
     recognitionUsage.value = recognizedResponse.usage
     recognitionCostEstimate.value = recognizedResponse.costEstimate
     currentRecognitionSaved.value = false
     initialResult.value = structuredClone(toRaw(result.value))
-    recognizedFileId.value = firstImage.uploaded.fileId
+    recognizedFileIds.value = fileIds
     confirmedFields.clear()
     edits.value = {}
     aiCorrect.value = {}
@@ -531,10 +560,7 @@ async function submitRecord(): Promise<void> {
     errorMessage.value = '请先完成图片上传。'
     return
   }
-  if (validSku.value.length !== skuCells.value.length || skuCells.value.length === 0) {
-    errorMessage.value = '请为每个颜色和尺码填写大于 0 的吊牌价与批发单价。'
-    return
-  }
+  if (!validateSkuPrices()) return
 
   saving.value = true
   errorMessage.value = ''
@@ -556,7 +582,8 @@ async function submitRecord(): Promise<void> {
     const saved = await apiFetch<ProductRecord>('/api/records', { method: 'POST', body: record })
     recordList.value = [saved, ...recordList.value]
     currentRecognitionSaved.value = true
-    statusMessage.value = '商品记录已保存。'
+    statusMessage.value = ''
+    saveSuccessDialog.value?.showModal()
   } catch (error) {
     if (readErrorCode(error) === 'E_IMAGE_MISSING') {
       for (const image of imageQueue.value) {
@@ -564,7 +591,7 @@ async function submitRecord(): Promise<void> {
         image.status = 'ready'
         image.error = undefined
       }
-      recognizedFileId.value = undefined
+      recognizedFileIds.value = []
       currentRecognitionSaved.value = false
       statusMessage.value = ''
       errorMessage.value = '图片已失效，照片已重置为待上传；点击“重新识别”重新上传后再保存。'
@@ -676,7 +703,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                   ><img :src="image.previewUrl" alt=""><i v-if="image.uploaded">✓</i></button>
                   <button class="thumb thumb--add" type="button" aria-label="再添加图片" @click="fileInput?.click()">+</button>
                 </div>
-                <span class="file-rules">多图已就绪 · 当前识别第 {{ selectedImageIndex + 1 }} 张</span>
+                <span class="file-rules">共 {{ imageQueue.length }} 张 · AI 将综合识别同一商品</span>
               </template>
             </div>
 
@@ -692,7 +719,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
               </div>
             </div>
 
-            <div class="upload-footnote"><span class="lock-mark">◈</span> 图片仅用于本次识别与商品记录</div>
+            <div class="upload-footnote"><span class="lock-mark">◈</span> 最多 {{ MAX_RECORD_IMAGES }} 张同一商品照片；不同商品请分开识别。图片仅用于识别与记录。</div>
           </section>
 
           <section class="guide-card">
@@ -731,12 +758,12 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
             <div class="form-grid">
               <label :class="fieldClass('category')">
-                <span class="field-label">{{ fieldLabel('category') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('category') < 3 }" :aria-label="`置信度 ${confidenceTickCount('category')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('category') }" /></span></span>
+                <span class="field-label field-label--ink">{{ fieldLabel('category') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('category') < 3 }" :aria-label="`置信度 ${confidenceTickCount('category')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('category') }" /></span></span>
                 <select v-model="result.category" @change="recordFieldChange('category')"><option v-for="category in CATEGORIES" :key="category" :value="category">{{ category }}</option></select>
                 <button class="confirm-field" type="button" @click="markCorrect('category')">AI 对</button>
               </label>
               <label :class="fieldClass('style')">
-                <span class="field-label">{{ fieldLabel('style') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('style') < 3 }" :aria-label="`置信度 ${confidenceTickCount('style')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('style') }" /></span></span>
+                <span class="field-label field-label--ink">{{ fieldLabel('style') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('style') < 3 }" :aria-label="`置信度 ${confidenceTickCount('style')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('style') }" /></span></span>
                 <select v-model="result.style" @change="recordFieldChange('style')"><option v-for="style in STYLES" :key="style" :value="style">{{ style }}</option></select>
                 <button class="confirm-field" type="button" @click="markCorrect('style')">AI 对</button>
               </label>
@@ -751,7 +778,7 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
                 <button class="confirm-field" type="button" @click="markCorrect('fabric')">AI 对</button>
               </label>
               <div :class="fieldClass('colors')">
-                <span class="field-label">{{ fieldLabel('colors') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('colors') < 3 }" :aria-label="`置信度 ${confidenceTickCount('colors')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('colors') }" /></span></span>
+                <span class="field-label field-label--ink">{{ fieldLabel('colors') }} <span class="confidence-scale" :class="{ 'confidence-scale--low': confidenceTickCount('colors') < 3 }" :aria-label="`置信度 ${confidenceTickCount('colors')}/5`" role="img"><i v-for="tick in 5" :key="tick" :class="{ 'confidence-tick--filled': tick <= confidenceTickCount('colors') }" /></span></span>
                 <div class="color-options"><button v-for="color in result.colors" :key="`selected-${color.name}`" type="button" class="color-option color-option--selected" :aria-label="`移除颜色 ${color.name}`" @click="toggleColor(color)"><i :style="{ backgroundColor: color.hex }" />{{ color.name }}<b>×</b></button><button v-for="color in availableColors" :key="`option-${color.name}`" type="button" class="color-option" :disabled="result.colors.length >= 4" @click="toggleColor(color)"><i :style="{ backgroundColor: color.hex }" />{{ color.name }}</button></div>
                 <div class="custom-color-row"><input v-model="customColor.name" type="text" maxlength="12" placeholder="自定义颜色"><input v-model="customColor.hex" type="text" maxlength="7" aria-label="自定义颜色十六进制色值"><button type="button" :disabled="result.colors.length >= 4" @click="addCustomColor">添加</button></div>
                 <button class="confirm-field" type="button" @click="markCorrect('colors')">AI 对</button>
@@ -781,12 +808,27 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
               <span class="sku-total"><b>{{ skuCells.length }}</b> 个规格组合</span>
             </div>
             <div class="sku-tools">
-              <div class="size-pills"><span class="tool-label">尺码</span><button v-for="size in sizeSelection" :key="size" type="button" class="size-pill" @click="removeSize(size)">{{ size }} <i>×</i></button></div>
+              <div class="size-pills"><span class="tool-label">尺码</span><span v-for="size in sizeSelection" :key="size" class="size-pill"><span>{{ size }}</span><button type="button" class="size-pill-remove" :disabled="sizeSelection.length <= 1" :aria-label="`移除尺码 ${size}`" :title="sizeSelection.length <= 1 ? '至少保留一个尺码' : `移除尺码 ${size}`" @click.stop="removeSize(size)"><i aria-hidden="true">×</i></button></span></div>
               <div class="add-size-control"><select v-model="sizeToAdd" aria-label="选择要添加的尺码"><option v-for="size in SIZES_TOP.filter((item) => !sizeSelection.includes(item))" :key="size" :value="size">{{ size }}</option></select><button type="button" :disabled="sizeSelection.length >= SIZES_TOP.length" @click="addSize">＋ 添加尺码</button></div>
             </div>
             <div v-if="skuCells.length" class="table-scroll">
               <table class="sku-table"><thead><tr><th>颜色 / 尺码</th><th>库存 <small>件</small></th><th>吊牌价 <small>元</small></th><th>批发单价 <small>元</small></th></tr></thead>
-                <tbody><tr v-for="cell in skuCells" :key="cell.key"><th><span class="sku-color-dot" :style="{ backgroundColor: cell.hex }" />{{ cell.color }} <span class="sku-size">{{ cell.size }}</span></th><td><input :value="skuValue(cell.key).stock" class="number-input" :class="{ 'number-input--zero': skuValue(cell.key).stock === 0 }" type="number" min="0" step="1" :aria-label="`${cell.color} ${cell.size} 库存`" @input="setSkuValue(cell.key, 'stock', $event)"></td><td><input :value="skuValue(cell.key).tagPrice ?? ''" class="number-input" type="number" min="0.01" step="0.01" :aria-label="`${cell.color} ${cell.size} 吊牌价`" @input="setSkuValue(cell.key, 'tagPrice', $event)"></td><td><input :value="skuValue(cell.key).wholesalePrice ?? ''" class="number-input" type="number" min="0.01" step="0.01" :aria-label="`${cell.color} ${cell.size} 批发单价`" @input="setSkuValue(cell.key, 'wholesalePrice', $event)"></td></tr></tbody>
+                <tbody><tr v-for="cell in skuCells" :key="cell.key">
+                  <th><span class="sku-color-dot" :style="{ backgroundColor: cell.hex }" />{{ cell.color }} <span class="sku-size">{{ cell.size }}</span></th>
+                  <td><input :value="skuValue(cell.key).stock" class="number-input" :class="{ 'number-input--zero': skuValue(cell.key).stock === 0 }" type="number" min="0" step="1" :aria-label="`${cell.color} ${cell.size} 库存`" @input="setSkuValue(cell.key, 'stock', $event)"></td>
+                  <td class="sku-price-cell">
+                    <div class="sku-price-control">
+                      <input :value="skuValue(cell.key).tagPrice ?? ''" class="number-input" type="number" min="0.01" step="0.01" :aria-invalid="Boolean(skuPriceErrors[cell.key]?.tagPrice)" :aria-describedby="skuPriceErrors[cell.key]?.tagPrice ? `sku-${cell.key}-tag-error` : undefined" :aria-label="`${cell.color} ${cell.size} 吊牌价`" @input="setSkuValue(cell.key, 'tagPrice', $event)">
+                      <span v-if="skuPriceErrors[cell.key]?.tagPrice" :id="`sku-${cell.key}-tag-error`" class="sku-field-error">{{ skuPriceErrors[cell.key]?.tagPrice }}</span>
+                    </div>
+                  </td>
+                  <td class="sku-price-cell">
+                    <div class="sku-price-control">
+                      <input :value="skuValue(cell.key).wholesalePrice ?? ''" class="number-input" type="number" min="0.01" step="0.01" :aria-invalid="Boolean(skuPriceErrors[cell.key]?.wholesalePrice)" :aria-describedby="skuPriceErrors[cell.key]?.wholesalePrice ? `sku-${cell.key}-wholesale-error` : undefined" :aria-label="`${cell.color} ${cell.size} 批发单价`" @input="setSkuValue(cell.key, 'wholesalePrice', $event)">
+                      <span v-if="skuPriceErrors[cell.key]?.wholesalePrice" :id="`sku-${cell.key}-wholesale-error`" class="sku-field-error">{{ skuPriceErrors[cell.key]?.wholesalePrice }}</span>
+                    </div>
+                  </td>
+                </tr></tbody>
               </table>
             </div>
             <div class="sku-summary"><span>已填写 <b>{{ readySkuCount }} / {{ skuCells.length }}</b> 个规格</span><span class="summary-hint">吊牌价已按 AI 建议预填，可逐项调整</span></div>
@@ -814,6 +856,14 @@ onBeforeUnmount(() => imageQueue.value.forEach((image) => URL.revokeObjectURL(im
 
       <footer class="app-footer"><span>snap2sku <i>·</i> 衣物商品录入工作台</span><span><b>W1</b> Local prototype</span></footer>
     </main>
+    <dialog ref="saveSuccessDialog" class="save-success-dialog" aria-labelledby="save-success-title">
+      <div class="save-success-content">
+        <span class="save-success-icon" aria-hidden="true">✓</span>
+        <h2 id="save-success-title">保存成功</h2>
+        <p>商品记录已保存。</p>
+        <button class="button button--primary" type="button" @click="saveSuccessDialog?.close()">知道了</button>
+      </div>
+    </dialog>
   </div>
 </template>
 
@@ -934,6 +984,7 @@ h2 img { width: 20px; height: 20px; }
 .field-card--low { border-color: color-mix(in oklch, var(--c-warn-ink) 42%, var(--c-border)); background: color-mix(in oklch, var(--c-warn-bg) 55%, var(--c-surface)); }
 .field-card--wide { grid-column: span 2; }
 .field-label { display: flex; align-items: center; gap: 6px; color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); letter-spacing: .02em; }
+.field-label--ink { color: var(--c-ink); }
 .field-optional { margin-left: auto; color: color-mix(in oklch, var(--c-ink-2) 75%, transparent); font-family: var(--font-body); font-size: var(--font-xs); letter-spacing: 0; }
 .field-card select,.field-card input:not([type=checkbox]) { width: 100%; min-width: 0; height: 31px; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-ink); font-size: var(--font-xs); }
 .confirm-field { position: absolute; right: 8px; bottom: 14px; padding: 2px 5px; border: 0; background: var(--c-surface); color: var(--c-primary); font-size: var(--font-xs); cursor: pointer; opacity: .65; }
@@ -964,8 +1015,12 @@ h2 img { width: 20px; height: 20px; }
 .sku-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 11px; }
 .size-pills,.add-size-control { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .tool-label { margin-right: 3px; color: var(--c-ink-2); font-family: var(--font-mono); font-size: var(--font-xs); }
-.size-pill { padding: 4px 6px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-ink); font-family: var(--font-mono); font-size: var(--font-xs); cursor: pointer; }
-.size-pill i { padding-left: 4px; color: var(--c-ink-2); font-style: normal; }
+.size-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 6px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-ink); font-family: var(--font-mono); font-size: var(--font-xs); }
+.size-pill-remove { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--c-ink-2); cursor: pointer; }
+.size-pill-remove i { font-size: var(--font-sm); font-style: normal; line-height: 1; }
+.size-pill-remove:hover:not(:disabled) { background: var(--c-warn-bg); color: var(--c-error); }
+.size-pill-remove:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 1px; }
+.size-pill-remove:disabled { opacity: .45; cursor: not-allowed; }
 .add-size-control select { max-width: 68px; height: 27px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); font-size: var(--font-xs); }
 .add-size-control button { height: 27px; padding: 0 6px; border: 1px solid var(--c-border); background: transparent; color: var(--c-primary); font-size: var(--font-xs); cursor: pointer; }
 .add-size-control button:disabled { opacity: .5; cursor: not-allowed; }
@@ -982,6 +1037,16 @@ h2 img { width: 20px; height: 20px; }
 .number-input { width: 78px; height: 25px; padding: 0 6px; border: 1px solid transparent; border-bottom-color: var(--c-border); background: transparent; color: var(--c-ink); font-family: var(--font-mono); font-size: var(--font-xs); font-variant-numeric: tabular-nums; text-align: right; }
 .number-input:focus { border-color: var(--c-primary); background: var(--c-surface); outline: 0; }
 .number-input--zero { color: var(--c-error); }
+.sku-price-cell { min-width: 100px; vertical-align: middle; }
+.sku-price-control { display: flex; min-height: 32px; align-items: center; justify-content: flex-end; gap: 8px; }
+.sku-field-error { flex: 0 0 auto; color: var(--c-error); font-family: var(--font-body); font-size: var(--font-xs); line-height: 1.3; text-align: center; white-space: nowrap; }
+.save-success-dialog { width: min(360px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-ink); box-shadow: 0 16px 48px color-mix(in oklch, var(--c-ink) 18%, transparent); }
+.save-success-dialog::backdrop { background: color-mix(in oklch, var(--c-ink) 40%, transparent); }
+.save-success-content { display: grid; justify-items: center; gap: 10px; padding: 26px; text-align: center; }
+.save-success-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--c-success); border-radius: var(--radius-full); color: var(--c-success); font-size: var(--font-md); }
+.save-success-content h2 { font-size: var(--font-md); }
+.save-success-content p { color: var(--c-ink-2); font-size: var(--font-sm); }
+.save-success-content button { min-width: 110px; margin-top: 8px; }
 .sku-summary { display: flex; justify-content: space-between; gap: 8px; padding-top: 10px; color: var(--c-ink-2); font-size: var(--font-xs); }
 .sku-summary b { color: var(--c-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .summary-hint { text-align: right; }

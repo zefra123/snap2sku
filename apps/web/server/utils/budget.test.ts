@@ -120,6 +120,73 @@ describe("trial model spend ledger", () => {
     expect(modelSpendSummary().spentCny).toBeGreaterThan(0);
   });
 
+  it("sends all selected product photos to one recognition model request", async () => {
+    const dataDirectory = createDirectory();
+    initializeStore(dataDirectory);
+    const fileIds = [
+      "b8d18f28-5964-4c9e-a2f8-0ae388a32d74",
+      "d6bf018a-8875-42c5-b4b0-529f52336e70",
+    ];
+    mkdirSync(join(dataDirectory, "uploads"), { recursive: true });
+    fileIds.forEach((fileId, index) => {
+      writeFileSync(uploadPath(`${fileId}.jpg`), Buffer.from(`image-${index}`));
+    });
+    vi.stubGlobal("useRuntimeConfig", () => ({
+      visionMock: "0",
+      visionApiKey: "test-key",
+      visionModel: "glm-4v-flash",
+      visionBaseUrl: "http://127.0.0.1:4000/v4/chat/completions",
+      visionInputPricePerMillion: 2,
+      visionOutputPricePerMillion: 8,
+      trialBudgetCny: 0.1,
+      trialReserveCny: 0.05,
+      trialId: "multi-image-test",
+    }));
+    vi.stubGlobal("createError", createError);
+    const result = getMockRecognizeResult("tagPrice");
+    let requestBody:
+      | {
+          messages: Array<{
+            role: string;
+            content: Array<{
+              type: string;
+              text?: string;
+              image_url?: { url: string };
+            }>;
+          }>;
+        }
+      | undefined;
+    const fetchStub = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = JSON.parse(String(init?.body)) as typeof requestBody;
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(result) } }],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 50,
+              total_tokens: 150,
+            },
+          }),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchStub);
+    const event = { context: { params: {} } } as unknown as H3Event;
+
+    await recognizeImage(fileIds, "tagPrice", event);
+
+    const content = requestBody?.messages[1]?.content ?? [];
+    const sentImages = content.filter((part) => part.type === "image_url");
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(content[0]?.text).toContain("2 张同一件商品");
+    expect(sentImages).toHaveLength(2);
+    expect(sentImages[0]?.image_url?.url).not.toBe(
+      sentImages[1]?.image_url?.url,
+    );
+    expect(modelSpendSummary().spentCny).toBe(0.1);
+  });
+
   it("does not extend a reservation when the remaining cap cannot cover it", () => {
     initializeStore(createDirectory());
     const reservation = reserve({ capCny: 0.08, reserveCny: 0.05 });

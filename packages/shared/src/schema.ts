@@ -75,6 +75,31 @@ export const RecognizeResponseSchema = z.object({
   costEstimate: z.number().nonnegative(),
 });
 
+const RecognizeMockFixtureSchema = z.enum([
+  "tagPrice",
+  "noTagPrice",
+  "allNull",
+]);
+const RecognizeFileIdsSchema = z
+  .array(z.string().uuid())
+  .min(1)
+  .max(MAX_RECORD_IMAGES);
+export const RecognizeRequestSchema = z.union([
+  z
+    .object({
+      fileIds: RecognizeFileIdsSchema,
+      mockFixture: RecognizeMockFixtureSchema.optional(),
+    })
+    .strict(),
+  // Keep the single-image shape compatible with the existing mini-program client.
+  z
+    .object({
+      fileId: z.string().uuid(),
+      mockFixture: RecognizeMockFixtureSchema.optional(),
+    })
+    .strict(),
+]);
+
 export const DescriptionSourceSchema = RecognizeResultSchema.pick({
   category: true,
   style: true,

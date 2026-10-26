@@ -6,6 +6,7 @@ import {
   DescriptionVariantsSchema,
   DescriptionSourceSchema,
   DescribeResultSchema,
+  PLACEHOLDER_ITEM_NAME,
   RecognizeResultSchema,
   SEASONS,
   STYLES,
@@ -241,9 +242,10 @@ export function normalizeRecognizeResult(value: unknown): unknown {
   if (
     typeof result.item_name !== "string" ||
     result.item_name.length < 8 ||
-    result.item_name.length > 16
+    result.item_name.length > 16 ||
+    result.item_name === PLACEHOLDER_ITEM_NAME
   ) {
-    result.item_name = "待人工确认的服装商品";
+    result.item_name = buildFallbackItemName(result);
     usedFallback = true;
   }
 
@@ -259,6 +261,50 @@ export function normalizeRecognizeResult(value: unknown): unknown {
   result.confidence = confidence;
 
   return result;
+}
+
+function buildFallbackItemName(result: Record<string, unknown>): string {
+  const style =
+    isOneOf(result.style, STYLES) && result.style !== "其他"
+      ? result.style
+      : undefined;
+  const category =
+    isOneOf(result.category, CATEGORIES) && result.category !== "其他"
+      ? result.category
+      : undefined;
+  const color = Array.isArray(result.colors)
+    ? result.colors.find(
+        (item) =>
+          isRecord(item) &&
+          typeof item.name === "string" &&
+          item.name.trim().length > 0 &&
+          item.name !== "其他",
+      )
+    : undefined;
+  const colorName =
+    isRecord(color) && typeof color.name === "string"
+      ? Array.from(color.name.trim()).slice(0, 4).join("")
+      : undefined;
+  const descriptors = [style, colorName, category].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  if (descriptors.length < 2) return PLACEHOLDER_ITEM_NAME;
+
+  const audience = isOneOf(result.audience, AUDIENCES)
+    ? result.audience
+    : "中性";
+  const audienceLabel =
+    audience === "女"
+      ? "女款"
+      : audience === "男"
+        ? "男款"
+        : audience === "儿童"
+          ? "儿童款"
+          : "中性款";
+  let itemName = `${descriptors.join("")}${audienceLabel}`;
+  if (Array.from(itemName).length < 8) itemName += "服装商品";
+  return Array.from(itemName).slice(0, 16).join("");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -287,13 +333,18 @@ function isOneOf<const Values extends readonly string[]>(
 }
 
 export async function recognizeImage(
-  fileId: string,
+  fileIds: string | string[],
   fixture: MockFixture,
   event: H3Event,
 ): Promise<RecognizeResponse> {
   const config = useRuntimeConfig(event);
-  const imagePath = await findUploadPath(fileId);
-  if (!imagePath) failApi(404, "E_FILE_NOT_FOUND", "找不到已上传的图片");
+  const ids = typeof fileIds === "string" ? [fileIds] : fileIds;
+  const imagePaths = await Promise.all(
+    ids.map((fileId) => findUploadPath(fileId)),
+  );
+  if (imagePaths.some((imagePath) => !imagePath)) {
+    failApi(404, "E_FILE_NOT_FOUND", "找不到已上传的图片");
+  }
   if (isVisionMockEnabled(config)) return createMockRecognizeResponse(fixture);
 
   if (!config.visionApiKey) {
@@ -304,17 +355,28 @@ export async function recognizeImage(
     );
   }
 
-  const image = await readFile(imagePath);
-  const mime = imagePath.endsWith(".png")
-    ? "image/png"
-    : imagePath.endsWith(".webp")
-      ? "image/webp"
-      : "image/jpeg";
-  const reservation = reserveModelCall(event, "recognize");
+  const images = await Promise.all(
+    imagePaths.map(async (imagePath) => {
+      const path = imagePath!;
+      return {
+        image: await readFile(path),
+        mime: path.endsWith(".png")
+          ? "image/png"
+          : path.endsWith(".webp")
+            ? "image/webp"
+            : "image/jpeg",
+      };
+    }),
+  );
+  const reservation = reserveModelCall(
+    event,
+    "recognize",
+    undefined,
+    ids.length,
+  );
   return runReservedModelCall(reservation, (markRequestStarted) =>
     requestVisionModel(
-      image,
-      mime,
+      images,
       config.visionApiKey,
       config.visionModel,
       config.visionBaseUrl,
@@ -647,8 +709,7 @@ export function normalizeGeneratedDescription(value: unknown): unknown {
 }
 
 async function requestVisionModel(
-  image: Buffer,
-  mime: string,
+  images: Array<{ image: Buffer; mime: string }>,
   apiKey: string,
   model: string,
   baseUrl: string,
@@ -656,7 +717,13 @@ async function requestVisionModel(
   outputPricePerMillion: number,
   markRequestStarted: () => void,
 ): Promise<RecognizeResponse> {
-  const imageBase64 = image.toString("base64");
+  const imageContents = images.flatMap(({ image, mime }, index) => [
+    { type: "text", text: `照片 ${index + 1}` },
+    {
+      type: "image_url",
+      image_url: { url: `data:${mime};base64,${image.toString("base64")}` },
+    },
+  ]);
   const endpoint = getChatCompletionsEndpoint(baseUrl);
   let repairPrompt: string | undefined;
   let totalUsage = zeroUsage;
@@ -674,11 +741,8 @@ async function requestVisionModel(
         {
           role: "user",
           content: [
-            { type: "text", text: buildRecognitionUserPrompt(1) },
-            {
-              type: "image_url",
-              image_url: { url: `data:${mime};base64,${imageBase64}` },
-            },
+            { type: "text", text: buildRecognitionUserPrompt(images.length) },
+            ...imageContents,
           ],
         },
       ],

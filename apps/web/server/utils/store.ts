@@ -449,7 +449,7 @@ export async function findUploadPath(
 export async function readRecords(): Promise<ProductRecord[]> {
   const connection = getDatabase();
   const records = connection
-    .prepare("SELECT * FROM records ORDER BY rowid")
+    .prepare("SELECT * FROM records ORDER BY created_at DESC, rowid DESC")
     .all() as DatabaseRow[];
   const skuRows = connection
     .prepare("SELECT * FROM skus ORDER BY rowid")
