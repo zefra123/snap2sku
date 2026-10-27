@@ -7,8 +7,46 @@
         "navigationBarBackgroundColor": "#f4f2ec",
         "navigationBarTextStyle": "black"
       }
+    },
+    {
+      "path": "pages/records/index",
+      "style": {
+        "navigationBarTitleText": "商品记录",
+        "navigationBarBackgroundColor": "#f4f2ec",
+        "navigationBarTextStyle": "black",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/detail/index",
+      "style": {
+        "navigationBarTitleText": "商品详情",
+        "navigationBarBackgroundColor": "#f4f2ec",
+        "navigationBarTextStyle": "black",
+        "enablePullDownRefresh": true
+      }
     }
   ],
+  "tabBar": {
+    "color": "#66615a",
+    "selectedColor": "#304a7b",
+    "backgroundColor": "#fbfaf6",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "录入",
+        "iconPath": "static/tab/entry.png",
+        "selectedIconPath": "static/tab/entry-active.png"
+      },
+      {
+        "pagePath": "pages/records/index",
+        "text": "记录",
+        "iconPath": "static/tab/records.png",
+        "selectedIconPath": "static/tab/records-active.png"
+      }
+    ]
+  },
   "globalStyle": {
     "backgroundColor": "#f4f2ec",
     "navigationBarTextStyle": "black"

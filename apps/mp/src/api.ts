@@ -1,12 +1,25 @@
 import {
+  DescribeResultSchema,
   ProductRecordSchema,
+  ProductRecordWithImageUrlsSchema,
   RecognizeResponseSchema,
   RecognizeResultSchema,
   UploadFileSchema,
   type ProductRecord,
+  type ProductRecordWithImageUrls,
   type RecognizeResponse,
   type UploadFile,
 } from "@scope/shared/schema";
+import { apiBaseUrl } from "./config";
+
+export type ApiMethod = "GET" | "POST" | "PUT";
+
+export interface SseEvent {
+  event: string;
+  data: string;
+}
+
+const SSE_REQUEST_TIMEOUT_MS = 60_000;
 
 export function buildAccessHeaders(accessCode: string): Record<string, string> {
   return { "x-access-code": accessCode };
@@ -37,6 +50,123 @@ export function parseProductRecord(value: unknown): ProductRecord {
   const parsed = ProductRecordSchema.safeParse(value, { jitless: true });
   if (!parsed.success) throw new Error("E_VALIDATION: 商品记录字段不完整");
   return parsed.data;
+}
+
+export function parseProductRecordWithImageUrls(
+  value: unknown,
+): ProductRecordWithImageUrls {
+  const parsed = ProductRecordWithImageUrlsSchema.safeParse(value, {
+    jitless: true,
+  });
+  if (!parsed.success) throw new Error("E_VALIDATION: 商品记录格式不正确");
+  return parsed.data;
+}
+
+export function parseProductRecordList(
+  value: unknown,
+): ProductRecordWithImageUrls[] {
+  const parsed = ProductRecordWithImageUrlsSchema.array().safeParse(value, {
+    jitless: true,
+  });
+  if (!parsed.success) throw new Error("E_VALIDATION: 记录列表格式不正确");
+  return parsed.data;
+}
+
+export function parseSseEvents(source: string): SseEvent[] {
+  const events: SseEvent[] = [];
+  const normalized = source.replace(/\r\n/g, "\n");
+  for (const block of normalized.split("\n\n")) {
+    if (!block.trim()) continue;
+    let event = "message";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:"))
+        data.push(line.slice(5).replace(/^ /, ""));
+    }
+    if (data.length) events.push({ event, data: data.join("\n") });
+  }
+  return events;
+}
+
+export function requestApi(
+  path: string,
+  method: ApiMethod = "GET",
+  data?: string | Record<string, unknown> | ArrayBuffer,
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const accessCode = String(uni.getStorageSync("snap2sku-access-code") || "");
+    const header =
+      method === "GET"
+        ? undefined
+        : {
+            ...buildAccessHeaders(accessCode),
+            "content-type": "application/json",
+          };
+    uni.request({
+      url: `${apiBaseUrl}${path}`,
+      method,
+      data,
+      header,
+      success: (response) => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(
+            new Error(apiErrorMessage(response.statusCode, response.data)),
+          );
+          return;
+        }
+        resolve(response.data);
+      },
+      fail: () =>
+        reject(new Error("E_UPSTREAM: 请求失败，请检查网络和服务地址")),
+    });
+  });
+}
+
+export function requestSse(path: string): Promise<SseEvent[]> {
+  return new Promise((resolve, reject) => {
+    const accessCode = String(uni.getStorageSync("snap2sku-access-code") || "");
+    uni.request({
+      url: `${apiBaseUrl}${path}`,
+      method: "POST",
+      header: {
+        ...buildAccessHeaders(accessCode),
+        "content-type": "application/json",
+      },
+      data: {},
+      dataType: "text",
+      responseType: "text",
+      timeout: SSE_REQUEST_TIMEOUT_MS,
+      success: (response) => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(
+            new Error(apiErrorMessage(response.statusCode, response.data)),
+          );
+          return;
+        }
+        if (typeof response.data !== "string") {
+          reject(new Error("E_UPSTREAM: 文案响应格式不正确"));
+          return;
+        }
+        resolve(parseSseEvents(response.data));
+      },
+      fail: () =>
+        reject(new Error("E_UPSTREAM: 文案生成失败，请检查网络后重试")),
+    });
+  });
+}
+
+export function absoluteImageUrl(path: string): string {
+  return `${apiBaseUrl}${path}`;
+}
+
+export function parseDescribeResultConfidence(
+  value: unknown,
+): { description: number; overall: number } | undefined {
+  const parsed = DescribeResultSchema.shape.confidence.safeParse(value, {
+    jitless: true,
+  });
+  return parsed.success ? parsed.data : undefined;
 }
 
 export function apiErrorMessage(statusCode: number, value: unknown): string {

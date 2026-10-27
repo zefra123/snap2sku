@@ -230,9 +230,19 @@ async function submitRecord(): Promise<void> {
       costEstimate: costEstimate.value,
     } satisfies ProductRecord;
     const record = parseProductRecord(draft);
-    await requestJson("/api/records", record);
+    const response = await requestJson("/api/records", record);
     saved.value = true;
-    message.value = "记录已保存，可在 Web 端记录页查看";
+    const recordId =
+      typeof response === "object" &&
+      response !== null &&
+      "id" in response &&
+      typeof response.id === "string"
+        ? response.id
+        : record.id;
+    message.value = "记录已保存，正在打开详情";
+    uni.navigateTo({
+      url: `/pages/detail/index?id=${encodeURIComponent(recordId)}`,
+    });
   } catch (error) {
     const errorText =
       error instanceof Error
@@ -268,7 +278,10 @@ function clearPriceError(field: "tagPrice" | "wholesalePrice"): void {
   priceErrors.value[field] = "";
 }
 
-function requestJson(path: string, data: unknown): Promise<unknown> {
+function requestJson(
+  path: string,
+  data: Record<string, unknown> | ProductRecord,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     uni.request({
       url: `${apiBaseUrl}${path}`,

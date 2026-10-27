@@ -63,11 +63,11 @@ snap2sku/
 
 ## 5. 未定项：禁止提前装、提前实现
 
-| 未定项                              | 禁止                                                      |
-| ----------------------------------- | --------------------------------------------------------- |
-| 样式方案（Tailwind v4 vs 手写 CSS） | 装 Tailwind / 任何 CSS 框架                               |
-| Pinia                               | 装 Pinia，状态用 `useState`                               |
-| ORM                                 | 装 prisma / drizzle；SQLite 访问用已批准的 better-sqlite3 |
+| 未定项                              | 禁止                                                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 样式方案（Tailwind v4 vs 手写 CSS） | 装 Tailwind / 任何 CSS 框架                                                                                           |
+| Pinia                               | 装 Pinia，状态用 `useState`                                                                                           |
+| ORM                                 | 装 prisma / drizzle；SQLite 访问用已批准的 better-sqlite3                                                             |
 | 部署平台                            | 已拍板（2026-10-22）：单台服务器 + 本地持久化磁盘 + systemd。仍禁止 vercel.json / Dockerfile / CI / 多实例 / 对象存储 |
 
 规则：新增任何**运行时**依赖前先问。用某个包的 API 前先读它自带的类型定义，不凭记忆写配置。
@@ -125,3 +125,17 @@ pnpm typecheck  # vue-tsc 全量类型检查，必须 0 错误
 - [ ] 样式：Tailwind v4（`@theme` 吃 token） vs 手写 CSS 变量
 - [ ] Pinia 是否需要
 - [ ] GLM-4V-Flash 免费额度与并发数（决定 `E_RATE_LIMIT` 阈值）
+
+## Agent skills
+
+### Issue tracker
+
+Track work as local Markdown files in `.scratch/<feature-slug>/`; see `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the multi-context layout mapped by root `CONTEXT-MAP.md`; keep system ADRs in `docs/adr/`. See `docs/agents/domain.md`.
